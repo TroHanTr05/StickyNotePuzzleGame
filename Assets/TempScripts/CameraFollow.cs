@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(Camera))]
 public class OrthoCameraFollow : MonoBehaviour
@@ -6,10 +7,16 @@ public class OrthoCameraFollow : MonoBehaviour
     [Header("References")]
     public Transform target;
 
-    [Header("Follow Settings")]
+    [Header("Follow")]
     public Vector3 targetOffset = Vector3.zero;
     public Vector3 worldOffset = new Vector3(-8f, 10f, -8f);
-    public float followSmoothTime = 0.12f;
+    public float focusSharpness = 14f;
+    public float followSharpness = 12f;
+
+    [Header("Look Ahead")]
+    public bool enableLookAhead = true;
+    public float lookAheadDistance = 0.5f;
+    public float lookAheadSharpness = 10f;
 
     [Header("Zoom")]
     public bool allowZoom = true;
@@ -17,50 +24,57 @@ public class OrthoCameraFollow : MonoBehaviour
     public float minSize = 3f;
     public float maxSize = 12f;
     public float zoomSensitivity = 2f;
-    public float zoomResetSpeed = 8f;
-    public KeyCode resetZoomKey = KeyCode.Mouse2;
+    public float zoomSharpness = 12f;
 
     [Header("Options")]
     public bool snapToTargetOnStart = true;
     public bool useUnscaledTime = false;
 
     private Camera cam;
-    private Vector3 currentVelocity;
+    private Vector3 smoothedFocusPoint;
+    private Vector3 smoothedLookAhead;
+    private Vector3 lastTargetPosition;
     private float zoomTarget;
 
     private float DeltaTime => useUnscaledTime ? Time.unscaledDeltaTime : Time.deltaTime;
+    private const float Tiny = 0.0001f;
 
-    void Awake()
+    private void Awake()
     {
         cam = GetComponent<Camera>();
         cam.orthographic = true;
     }
 
-    void Start()
+    private void Start()
     {
         zoomTarget = orthoSize;
         cam.orthographicSize = orthoSize;
+
+        if (target != null)
+        {
+            Vector3 targetFocus = target.position + targetOffset;
+            smoothedFocusPoint = targetFocus;
+            lastTargetPosition = target.position;
+        }
 
         if (snapToTargetOnStart)
             SnapInstant();
     }
 
-    void Update()
+    private void Update()
     {
-        if (cam == null)
-            return;
-
         HandleZoom();
 
         cam.orthographic = true;
-        cam.orthographicSize = Mathf.Lerp(
+        cam.orthographicSize = DampFloat(
             cam.orthographicSize,
             zoomTarget,
-            DeltaTime * zoomResetSpeed
+            zoomSharpness,
+            DeltaTime
         );
     }
 
-    void LateUpdate()
+    private void LateUpdate()
     {
         if (target == null || cam == null)
             return;
@@ -70,34 +84,65 @@ public class OrthoCameraFollow : MonoBehaviour
 
     private void HandleZoom()
     {
-        if (!allowZoom)
+        if (!allowZoom || Mouse.current == null)
             return;
 
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        float scroll = Mouse.current.scroll.ReadValue().y;
+
         if (Mathf.Abs(scroll) > 0.01f)
         {
             zoomTarget = Mathf.Clamp(
-                zoomTarget - scroll * zoomSensitivity,
+                zoomTarget - scroll * 0.01f * zoomSensitivity,
                 minSize,
                 maxSize
             );
         }
 
-        if (Input.GetKeyDown(resetZoomKey))
+        if (Mouse.current.middleButton.wasPressedThisFrame)
             zoomTarget = orthoSize;
     }
 
     private void UpdateCameraPose()
     {
-        Vector3 focusPoint = target.position + targetOffset;
-        Vector3 desiredPosition = focusPoint + worldOffset;
+        float dt = DeltaTime;
+        Vector3 rawFocusPoint = target.position + targetOffset;
 
-        transform.position = Vector3.SmoothDamp(
+        Vector3 lookAhead = Vector3.zero;
+        if (enableLookAhead && dt > 0f)
+        {
+            Vector3 delta = target.position - lastTargetPosition;
+            delta.y = 0f;
+
+            if (delta.sqrMagnitude > Tiny)
+                lookAhead = delta.normalized * lookAheadDistance;
+        }
+
+        smoothedLookAhead = DampVector3(
+            smoothedLookAhead,
+            lookAhead,
+            lookAheadSharpness,
+            dt
+        );
+
+        Vector3 desiredFocus = rawFocusPoint + smoothedLookAhead;
+
+        smoothedFocusPoint = DampVector3(
+            smoothedFocusPoint,
+            desiredFocus,
+            focusSharpness,
+            dt
+        );
+
+        Vector3 desiredPosition = smoothedFocusPoint + worldOffset;
+
+        transform.position = DampVector3(
             transform.position,
             desiredPosition,
-            ref currentVelocity,
-            followSmoothTime
+            followSharpness,
+            dt
         );
+
+        lastTargetPosition = target.position;
     }
 
     public void SnapInstant()
@@ -105,18 +150,24 @@ public class OrthoCameraFollow : MonoBehaviour
         if (target == null || cam == null)
             return;
 
-        Vector3 focusPoint = target.position + targetOffset;
-        Vector3 desiredPosition = focusPoint + worldOffset;
-
-        transform.position = desiredPosition;
+        Vector3 rawFocusPoint = target.position + targetOffset;
+        smoothedFocusPoint = rawFocusPoint;
+        smoothedLookAhead = Vector3.zero;
+        transform.position = smoothedFocusPoint + worldOffset;
         cam.orthographic = true;
         cam.orthographicSize = zoomTarget;
-        currentVelocity = Vector3.zero;
+        lastTargetPosition = target.position;
     }
 
     public void SetTarget(Transform newTarget, bool snapInstantly = true)
     {
         target = newTarget;
+
+        if (target != null)
+        {
+            smoothedFocusPoint = target.position + targetOffset;
+            lastTargetPosition = target.position;
+        }
 
         if (snapInstantly)
             SnapInstant();
@@ -132,6 +183,21 @@ public class OrthoCameraFollow : MonoBehaviour
         zoomTarget = orthoSize;
     }
 
+    private static float ExpDampFactor(float sharpness, float dt)
+    {
+        return 1f - Mathf.Exp(-sharpness * dt);
+    }
+
+    private static float DampFloat(float current, float target, float sharpness, float dt)
+    {
+        return Mathf.Lerp(current, target, ExpDampFactor(sharpness, dt));
+    }
+
+    private static Vector3 DampVector3(Vector3 current, Vector3 target, float sharpness, float dt)
+    {
+        return Vector3.Lerp(current, target, ExpDampFactor(sharpness, dt));
+    }
+
     private void OnValidate()
     {
         if (cam == null)
@@ -143,8 +209,12 @@ public class OrthoCameraFollow : MonoBehaviour
         orthoSize = Mathf.Max(0.01f, orthoSize);
         minSize = Mathf.Max(0.01f, minSize);
         maxSize = Mathf.Max(minSize, maxSize);
-        followSmoothTime = Mathf.Max(0f, followSmoothTime);
-        zoomResetSpeed = Mathf.Max(0f, zoomResetSpeed);
+
+        focusSharpness = Mathf.Max(0.01f, focusSharpness);
+        followSharpness = Mathf.Max(0.01f, followSharpness);
+        lookAheadSharpness = Mathf.Max(0.01f, lookAheadSharpness);
+        zoomSharpness = Mathf.Max(0.01f, zoomSharpness);
+        lookAheadDistance = Mathf.Max(0f, lookAheadDistance);
     }
 
     private void OnDrawGizmosSelected()
