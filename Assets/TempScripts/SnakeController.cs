@@ -2,8 +2,26 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// SnakeController — Point-and-click + draw-path 3D snake/slinky movement.
+/// No NavMesh required. Uses the new Unity Input System.
+///
+/// SETUP:
+///   1. Attach this script to any root GameObject.
+///   2. Assign HeadPrefab and SegmentPrefab (or leave null for auto-generated spheres).
+///   3. Tag/layer your ground objects and set GroundMask.
+///   4. Assign ClickCamera or leave null (defaults to Camera.main).
+///   5. Toggle CanClickMove and CanDrawPath in the Inspector.
+///      - CanClickMove : single left-click moves head to that point.
+///      - CanDrawPath  : hold and drag to draw a smooth path; release to follow it.
+///   6. Tune PathLineWidth / PathLineColor / PathDrawMinDistance for the draw-line look.
+/// </summary>
 public class SnakeController : MonoBehaviour
 {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Inspector
+    // ─────────────────────────────────────────────────────────────────────────
+
     [Header("Prefabs")]
     public GameObject HeadPrefab;
     public GameObject SegmentPrefab;
@@ -100,11 +118,19 @@ public class SnakeController : MonoBehaviour
     public LayerMask GroundMask = ~0;
     public Camera ClickCamera;
 
+    [Tooltip("Assign the OrthoCameraFollow component here and it will automatically " +
+             "track the snake head. Leave null if you want to wire it up yourself.")]
+    public OrthoCameraFollow CameraFollow;
+
     [Tooltip("Extra Y padding above the auto-detected collider half-height. Usually 0.")]
     public float GroundOffsetPadding = 0f;
 
     [Range(0.1f, 5f)]
     public float ClickIndicatorLifetime = 1.0f;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private — snake state
+    // ─────────────────────────────────────────────────────────────────────────
 
     private GameObject _head;
     private List<GameObject> _segments = new List<GameObject>();
@@ -129,6 +155,10 @@ public class SnakeController : MonoBehaviour
     private float _headHalfHeight;
     private float _segHalfHeight;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private — drawn path state
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Raw screen-drag points snapped to ground
     private List<Vector3> _drawnRaw = new List<Vector3>();
     // Smoothed Catmull-Rom path the snake follows (world positions)
@@ -142,12 +172,20 @@ public class SnakeController : MonoBehaviour
     private LineRenderer _pathLine;
     private GameObject _pathLineGO;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Unity
+    // ─────────────────────────────────────────────────────────────────────────
+
     void Start()
     {
         if (ClickCamera == null) ClickCamera = Camera.main;
         BuildSnake();
         SeedTrail(_head.transform.position);
         BuildPathLine();
+
+        // Auto-wire the camera to follow the snake head
+        if (CameraFollow != null)
+            CameraFollow.SetTarget(_head.transform, snapInstantly: true);
     }
 
     void Update()
@@ -158,6 +196,10 @@ public class SnakeController : MonoBehaviour
         RecordTrail();
         UpdateSegments();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Build
+    // ─────────────────────────────────────────────────────────────────────────
 
     void BuildSnake()
     {
@@ -253,6 +295,10 @@ public class SnakeController : MonoBehaviour
         _lastRecordedPos = pos;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Input — unified handler
+    // ─────────────────────────────────────────────────────────────────────────
+
     void HandleInput()
     {
         var mouse = Mouse.current;
@@ -266,6 +312,7 @@ public class SnakeController : MonoBehaviour
         Ray ray = ClickCamera.ScreenPointToRay(new Vector3(screenPos.x, screenPos.y, 0f));
         bool groundHit = Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, GroundMask);
 
+        // ── Draw Path mode ───────────────────────────────────────────────────
         if (CanDrawPath)
         {
             if (pressed && groundHit)
@@ -340,6 +387,7 @@ public class SnakeController : MonoBehaviour
             if (_isDragging) return;
         }
 
+        // ── Click-Move mode ──────────────────────────────────────────────────
         // Only fires if we're not in a draw-drag AND the press was a quick tap
         // (draw mode already consumed held/released above)
         if (CanClickMove && !CanDrawPath && pressed && groundHit)
@@ -364,6 +412,10 @@ public class SnakeController : MonoBehaviour
             Destroy(Instantiate(ClickIndicatorPrefab, groundPoint, Quaternion.identity),
                     ClickIndicatorLifetime);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Catmull-Rom spline — smooths a list of raw points into a dense curve
+    // ─────────────────────────────────────────────────────────────────────────
 
     List<Vector3> CatmullRomSpline(List<Vector3> pts, int subdivisions)
     {
@@ -403,6 +455,10 @@ public class SnakeController : MonoBehaviour
         return result;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // LineRenderer helper
+    // ─────────────────────────────────────────────────────────────────────────
+
     void RefreshLineRenderer(List<Vector3> points)
     {
         // Re-sync visual properties in case they were tweaked at runtime
@@ -417,8 +473,13 @@ public class SnakeController : MonoBehaviour
             _pathLine.SetPosition(i, points[i]);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Head Movement
+    // ─────────────────────────────────────────────────────────────────────────
+
     void MoveHead()
     {
+        // ── Follow drawn path ─────────────────────────────────────────────────
         if (_followingPath && _drawnPath.Count > 0)
         {
             // Advance path index: skip waypoints the head has already passed
@@ -444,6 +505,7 @@ public class SnakeController : MonoBehaviour
             UpdatePathLineFade();
         }
 
+        // ── Standard move-to-target ───────────────────────────────────────────
         if (!_hasTarget)
         {
             _smoothVelocity = Vector3.Lerp(_smoothVelocity, Vector3.zero, Time.deltaTime * 8f);
@@ -507,11 +569,19 @@ public class SnakeController : MonoBehaviour
         return pos;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Speed
+    // ─────────────────────────────────────────────────────────────────────────
+
     void UpdateHeadSpeed()
     {
         _currentSpeed = (_head.transform.position - _prevHeadPos).magnitude / Time.deltaTime;
         _prevHeadPos = _head.transform.position;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Trail
+    // ─────────────────────────────────────────────────────────────────────────
 
     void RecordTrail()
     {
@@ -522,6 +592,10 @@ public class SnakeController : MonoBehaviour
         _lastRecordedPos = pos;
         if (_trailCount < TrailResolution) _trailCount++;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Segment Update
+    // ─────────────────────────────────────────────────────────────────────────
 
     void UpdateSegments()
     {
@@ -611,6 +685,10 @@ public class SnakeController : MonoBehaviour
         return d;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Trail Sampling — arc-length walk through ring buffer
+    // ─────────────────────────────────────────────────────────────────────────
+
     Vector3 SampleTrail(float targetDist)
     {
         if (_trailCount <= 1) return _head.transform.position;
@@ -640,6 +718,10 @@ public class SnakeController : MonoBehaviour
 
         return _trail[(_trailWriteIdx - _trailCount + 1 + TrailResolution) % TrailResolution];
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Public API
+    // ─────────────────────────────────────────────────────────────────────────
 
     public void MoveTo(Vector3 worldPosition)
     {
