@@ -15,13 +15,22 @@ public class SimplePowerUp : MonoBehaviour
         if (!collision.gameObject.CompareTag("Player")) return;
 
         if (givesBalls && ballThrowScript != null)
+        {
             ballThrowScript.enabled = true;
+            PowerUpEvents.RaisePowerUpCollected(PowerUpType.Balls);
+        }
 
         if (givesGrapple && grappleScript != null)
+        {
             grappleScript.enabled = true;
+            PowerUpEvents.RaisePowerUpCollected(PowerUpType.Grapple);
+        }
 
         if (givesGlide && flyScript != null)
+        {
             flyScript.enabled = true;
+            PowerUpEvents.RaisePowerUpCollected(PowerUpType.Glide);
+        }
 
         Destroy(gameObject);
     }
