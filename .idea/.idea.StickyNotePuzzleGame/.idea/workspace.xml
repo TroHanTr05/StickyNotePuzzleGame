@@ -3,6 +3,7 @@
   <component name="ChangeListManager">
     <list default="true" id="3a40a44a-6ba6-43f0-8938-2b293c85782e" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/.idea.StickyNotePuzzleGame/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.StickyNotePuzzleGame/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Assets/TempScripts/BallThrower.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Assets/TempScripts/BallThrower.cs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -38,7 +39,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "git-widget-placeholder": "PowerUpPickups",
+    "git-widget-placeholder": "BallThrowFix",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -89,6 +90,7 @@
       <updated>1775535251265</updated>
       <workItem from="1775535253933" duration="1225000" />
       <workItem from="1775610386878" duration="724000" />
+      <workItem from="1775664915722" duration="4493000" />
     </task>
     <servers />
   </component>
