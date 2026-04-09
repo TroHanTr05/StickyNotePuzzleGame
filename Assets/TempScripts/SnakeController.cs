@@ -76,7 +76,7 @@ public class SnakeController : MonoBehaviour
 
     [Header("Ability — Ball Throw (1)")]
     public GameObject BallPrefab;
-    public Transform ThrowPoint;
+    public Vector3 ThrowPointOffset = new Vector3(0f, 0.5f, 0.5f);
     public float BallLaunchSpeed = 15f;
     public string BallTag = "Ball";
 
@@ -176,6 +176,7 @@ public class SnakeController : MonoBehaviour
     private Vector3 _animatedRopeEnd;
     private float _wobbleFade = 1f;
     private float _grappleStartTime;
+    private Transform _throwPoint;
 
     public bool IsGrappling => _isGrappling;
     public float CurrentSpeed => _currentSpeed;
@@ -225,6 +226,11 @@ public class SnakeController : MonoBehaviour
         _headHalfHeight = GetColliderHalfHeight(_head);
         _prevHeadPos = _head.transform.position;
         _targetPosition = _head.transform.position;
+
+        GameObject throwPointGO = new GameObject("ThrowPoint");
+        throwPointGO.transform.SetParent(_head.transform);
+        throwPointGO.transform.localPosition = ThrowPointOffset;
+        _throwPoint = throwPointGO.transform;
 
         _segEffSpacing = new float[SegmentCount];
         _segCurrentRoll = new float[SegmentCount];
@@ -778,7 +784,7 @@ public class SnakeController : MonoBehaviour
     {
         if (HeadTransform == null) return;
 
-        Vector3 spawnPos = ThrowPoint != null ? ThrowPoint.position : HeadTransform.position;
+        Vector3 spawnPos = _throwPoint.position;
         Vector3 targetPoint = GetBallTargetPoint(spawnPos);
 
         if (!CalculateLaunchVelocity(spawnPos, targetPoint, BallLaunchSpeed, out Vector3 velocity))
@@ -794,15 +800,21 @@ public class SnakeController : MonoBehaviour
             rb.linearVelocity = velocity;
     }
 
-    Vector3 GetBallTargetPoint(Vector3 origin)
+    Vector3 GetBallTargetPoint(Vector3 fallback)
     {
-        Plane plane = new Plane(Vector3.up, origin);
-        Ray ray = ClickCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
+        if (Mouse.current == null) return fallback;
 
-        if (plane.Raycast(ray, out float enter))
+        Vector2 mouseScreen = Mouse.current.position.ReadValue();
+        Ray ray = ClickCamera.ScreenPointToRay(new Vector3(mouseScreen.x, mouseScreen.y, 0f));
+
+        if (Physics.Raycast(ray, out RaycastHit hit, 200f, GroundMask))
+            return hit.point;
+
+        Plane ground = new Plane(Vector3.up, new Vector3(0f, fallback.y, 0f));
+        if (ground.Raycast(ray, out float enter))
             return ray.GetPoint(enter);
 
-        return origin;
+        return fallback;
     }
 
     bool CalculateLaunchVelocity(Vector3 start, Vector3 target, float speed, out Vector3 velocity)
