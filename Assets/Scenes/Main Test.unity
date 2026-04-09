@@ -1553,7 +1553,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1261001341}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Feet
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2525,7 +2525,7 @@ GameObject:
   - component: {fileID: 1896718072}
   - component: {fileID: 1896718076}
   - component: {fileID: 1896718077}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: PlayerBody
   m_TagString: Player
   m_Icon: {fileID: 0}
@@ -2675,6 +2675,7 @@ MonoBehaviour:
   TurnSpeed: 10
   ArrivalThreshold: 0.15
   MoveSmoothing: 0.18
+  GroundCheckAhead: 1
   TrailResolution: 600
   TrailMinDistance: 0.02
   MaxSpacingStretch: 2.5
@@ -2699,7 +2700,8 @@ MonoBehaviour:
   GroundOffsetPadding: 0
   ClickIndicatorLifetime: 1.2
   BallPrefab: {fileID: 1208084425930374401, guid: a2305dfaf810ae94a8f331ee7bf14223, type: 3}
-  BallArcHeight: 5
+  BallLaunchSpeed: 50
+  BallTag: Ball
   _hasBalls: 0
   GrappleMaxDistance: 15
   GrapplePullSpeed: 12
@@ -3188,7 +3190,7 @@ GameObject:
   - component: {fileID: 9170580656883863073}
   - component: {fileID: 955282417716657747}
   - component: {fileID: 4050995588429555178}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: PlayerHead
   m_TagString: Untagged
   m_Icon: {fileID: 0}

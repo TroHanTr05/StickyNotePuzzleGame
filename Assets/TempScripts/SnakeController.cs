@@ -76,6 +76,7 @@ public class SnakeController : MonoBehaviour
 
     [Header("Ability — Ball Throw (1)")]
     public GameObject BallPrefab;
+    public Transform ThrowPoint;
     public float BallLaunchSpeed = 15f;
     public string BallTag = "Ball";
 
@@ -777,7 +778,7 @@ public class SnakeController : MonoBehaviour
     {
         if (HeadTransform == null) return;
 
-        Vector3 spawnPos = HeadTransform.position;
+        Vector3 spawnPos = ThrowPoint != null ? ThrowPoint.position : HeadTransform.position;
         Vector3 targetPoint = GetBallTargetPoint(spawnPos);
 
         if (!CalculateLaunchVelocity(spawnPos, targetPoint, BallLaunchSpeed, out Vector3 velocity))
