@@ -2,35 +2,28 @@ using UnityEngine;
 
 public class SimplePowerUp : MonoBehaviour
 {
-    public bool givesBalls = false;
+    [Header("Which abilities does this power-up grant?")]
+    public bool givesBalls  = false;
     public bool givesGrapple = false;
-    public bool givesGlide = false;
+    public bool givesGlide  = false;
 
-    public MonoBehaviour ballThrowScript;
-    public MonoBehaviour grappleScript;
-    public MonoBehaviour flyScript;
+    [Header("Reference")]
+    [Tooltip("Drag the SnakeController here, or leave null to auto-find by Player tag.")]
+    public SnakeController snakeController;
 
     private void OnCollisionEnter(Collision collision)
     {
         if (!collision.gameObject.CompareTag("Player")) return;
 
-        if (givesBalls && ballThrowScript != null)
-        {
-            ballThrowScript.enabled = true;
-            PowerUpEvents.RaisePowerUpCollected(PowerUpType.Balls);
-        }
+        // Auto-find if not assigned
+        if (snakeController == null)
+            snakeController = collision.gameObject.GetComponentInParent<SnakeController>();
 
-        if (givesGrapple && grappleScript != null)
-        {
-            grappleScript.enabled = true;
-            PowerUpEvents.RaisePowerUpCollected(PowerUpType.Grapple);
-        }
+        if (snakeController == null) return;
 
-        if (givesGlide && flyScript != null)
-        {
-            flyScript.enabled = true;
-            PowerUpEvents.RaisePowerUpCollected(PowerUpType.Glide);
-        }
+        if (givesBalls)   snakeController.HasBalls   = true;
+        if (givesGrapple) snakeController.HasGrapple  = true;
+        if (givesGlide)   snakeController.HasGlide    = true;
 
         Destroy(gameObject);
     }

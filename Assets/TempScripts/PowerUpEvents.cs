@@ -1,8 +1,12 @@
 using System;
 
+// Static event bus for power-up state changes.
+// The "Model" layer in our MVVM setup — any script can fire these,
+// and any listener (the ViewModel) can subscribe.
 public static class PowerUpEvents
 {
     public static event Action<PowerUpType> OnPowerUpCollected;
+
     public static event Action<PowerUpType> OnPowerUpLost;
 
     public static void RaisePowerUpCollected(PowerUpType type)

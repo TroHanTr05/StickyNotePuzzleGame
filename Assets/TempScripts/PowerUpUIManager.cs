@@ -1,6 +1,19 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+// The View in our MVVM setup.
+// 
+// Owns a PowerUpViewModel, subscribes to its OnStateChanged event,
+// and pushes the current state into three UI Toggle widgets.
+//
+// SETUP IN THE EDITOR
+// 1.  Create a UI Panel (e.g. "PowerUpPanel") with three Toggles as children.
+// 2.  Drag each Toggle into the corresponding slot below.
+// 3.  Optionally assign label Text components so the script can recolor them.
+// 4.  Attach this script to any GameObject (an empty "UIManager" works well).
+//
+// The toggles are set to non-interactable so the player can't manually
+// flip them — they're display-only indicators driven entirely by gameplay.
 public class PowerUpUIManager : MonoBehaviour
 {
     [Header("Toggle References")]
@@ -50,6 +63,8 @@ public class PowerUpUIManager : MonoBehaviour
         }
     }
 
+    // One-way data binding: reads every flag from the ViewModel
+    // and pushes it into the UI. Called whenever the VM raises OnStateChanged.
     private void RefreshUI()
     {
         ApplyToggle(ballsToggle,   ballsLabel,   _vm.HasBalls);
@@ -68,11 +83,11 @@ public class PowerUpUIManager : MonoBehaviour
         cb.disabledColor = isActive ? activeColor : inactiveColor;
         toggle.colors = cb;
 
-        // Optional: recolor the label text
         if (label != null)
             label.color = isActive ? activeColor : inactiveColor;
     }
 
+    // Resets all three toggles to off. Useful on level reload.
     public void ResetAll()
     {
         _vm.ResetAll();

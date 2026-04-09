@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -83,13 +84,11 @@ public class SnakeController : MonoBehaviour
 
     public Color PathLineColor = new Color(1f, 0.85f, 0.2f, 0.85f);
 
-    [Tooltip("How far the mouse must move on the ground before a new path point is recorded. " +
-             "Lower = smoother but more points.")]
+    [Tooltip("How far the mouse must move on the ground before a new path point is recorded.")]
     [Range(0.05f, 2f)]
     public float PathDrawMinDistance = 0.2f;
 
-    [Tooltip("Number of subdivisions used to smooth the path via Catmull-Rom spline. " +
-             "Higher = silkier curve.")]
+    [Tooltip("Number of subdivisions used to smooth the path via Catmull-Rom spline.")]
     [Range(2, 20)]
     public int PathSmoothing = 8;
 
@@ -110,6 +109,80 @@ public class SnakeController : MonoBehaviour
     [Range(0.1f, 5f)]
     public float ClickIndicatorLifetime = 1.0f;
 
+    [Header("Ability — Ball Throw  (1)")]
+    public GameObject BallPrefab;
+    public float BallArcHeight = 5f;
+
+    [SerializeField] private bool _hasBalls = false;
+    public bool HasBalls
+    {
+        get => _hasBalls;
+        set
+        {
+            if (_hasBalls == value) return;
+            _hasBalls = value;
+            if (_hasBalls) PowerUpEvents.RaisePowerUpCollected(PowerUpType.Balls);
+            else PowerUpEvents.RaisePowerUpLost(PowerUpType.Balls);
+        }
+    }
+
+    [Header("Ability — Grapple  (2)")]
+    [Tooltip("Maximum distance the grapple can reach.")]
+    public float GrappleMaxDistance = 15f;
+
+    [Tooltip("How fast the grabbed object is pulled toward the player.")]
+    public float GrapplePullSpeed = 12f;
+
+    [Tooltip("Distance at which the pull stops and the grapple releases.")]
+    public float GrappleArrivalDistance = 1.5f;
+
+    [Tooltip("Layers that can be grappled.")]
+    public LayerMask GrappleableLayers = ~0;
+
+    [Header("Grapple — Rope Extend Animation")]
+    public float RopeExtendDuration = 0.15f;
+    public float RopeArcHeight = 0.3f;
+
+    [Header("Grapple — Rope Visuals")]
+    public Material GrappleMaterial;
+    public Color RopeColor = new Color(0.95f, 0.3f, 0.2f, 1f);
+    public float RopeStartWidth = 0.15f;
+    public float RopeEndWidth = 0.06f;
+    public int RopeSegments = 12;
+
+    [Header("Grapple — Rope Wobble")]
+    public float WobbleAmplitude = 0.12f;
+    public float WobbleFrequency = 6f;
+    public float WobbleDamping = 4f;
+
+    [SerializeField] private bool _hasGrapple = false;
+    public bool HasGrapple
+    {
+        get => _hasGrapple;
+        set
+        {
+            if (_hasGrapple == value) return;
+            _hasGrapple = value;
+            if (_hasGrapple) PowerUpEvents.RaisePowerUpCollected(PowerUpType.Grapple);
+            else PowerUpEvents.RaisePowerUpLost(PowerUpType.Grapple);
+            if (!_hasGrapple && _isGrappling) StopGrapple();
+        }
+    }
+
+    [Header("Ability — Glide  (3)")]
+    [SerializeField] private bool _hasGlide = false;
+    public bool HasGlide
+    {
+        get => _hasGlide;
+        set
+        {
+            if (_hasGlide == value) return;
+            _hasGlide = value;
+            if (_hasGlide) PowerUpEvents.RaisePowerUpCollected(PowerUpType.Glide);
+            else PowerUpEvents.RaisePowerUpLost(PowerUpType.Glide);
+        }
+    }
+
     private GameObject _head;
     private List<GameObject> _segments = new List<GameObject>();
 
@@ -117,13 +190,11 @@ public class SnakeController : MonoBehaviour
     private float[] _segCurrentRoll;
     private Vector3[] _solvedPos;
 
-    // Ring-buffer head trail
     private Vector3[] _trail;
     private int _trailWriteIdx = 0;
     private int _trailCount = 0;
     private Vector3 _lastRecordedPos;
 
-    // Head movement
     private Vector3 _targetPosition;
     private bool _hasTarget = false;
     private Vector3 _smoothVelocity = Vector3.zero;
@@ -133,11 +204,8 @@ public class SnakeController : MonoBehaviour
     private float _headHalfHeight;
     private float _segHalfHeight;
 
-    // Raw screen-drag points snapped to ground
     private List<Vector3> _drawnRaw = new List<Vector3>();
-    // Smoothed Catmull-Rom path the snake follows (world positions)
     private List<Vector3> _drawnPath = new List<Vector3>();
-    // Current index the head is walking toward on the drawn path
     private int _pathIndex = 0;
     private bool _followingPath = false;
     private bool _isDragging = false;
@@ -146,14 +214,31 @@ public class SnakeController : MonoBehaviour
     private LineRenderer _pathLine;
     private GameObject _pathLineGO;
 
+    private LineRenderer _grappleLine;
+    private bool _isGrappling = false;
+    private bool _ropeFullyExtended = false;
+    private Rigidbody _grabbedRb;
+    private Vector3 _grapplePoint;
+    private Vector3 _animatedRopeEnd;
+    private float _wobbleFade = 1f;
+    private float _grappleStartTime;
+
+    public bool IsGrappling => _isGrappling;
+
+    public float CurrentSpeed => _currentSpeed;
+    public GameObject Head => _head;
+    public IReadOnlyList<GameObject> Segments => _segments;
+
+    private Transform HeadTransform => _head != null ? _head.transform : null;
+
     void Start()
     {
         if (ClickCamera == null) ClickCamera = Camera.main;
         BuildSnake();
         SeedTrail(_head.transform.position);
         BuildPathLine();
+        BuildGrappleLine();
 
-        // Auto-wire the camera to follow the snake head
         if (CameraFollow != null)
             CameraFollow.SetTarget(_head.transform, snapInstantly: true);
     }
@@ -165,6 +250,16 @@ public class SnakeController : MonoBehaviour
         UpdateHeadSpeed();
         RecordTrail();
         UpdateSegments();
+
+        HandleBallThrowInput();
+        HandleGrappleInput();
+        HandleGlideInput();
+
+        if (_isGrappling && _ropeFullyExtended && _grabbedRb != null)
+            PullGrabbedObject();
+
+        if (_isGrappling)
+            DrawGrappleRope();
     }
 
     void BuildSnake()
@@ -174,6 +269,7 @@ public class SnakeController : MonoBehaviour
             : MakeSphere(transform.position, new Color(0.95f, 0.3f, 0.2f), 0.55f);
 
         _head.name = "SnakeHead";
+        _head.tag = "Player";
         _head.transform.SetParent(transform);
         _headHalfHeight = GetColliderHalfHeight(_head);
         _prevHeadPos = _head.transform.position;
@@ -195,6 +291,7 @@ public class SnakeController : MonoBehaviour
                       (float)i / Mathf.Max(1, SegmentCount - 1)), 0.45f);
 
             seg.name = $"Segment_{i:D2}";
+            seg.tag = "Player";
             seg.transform.SetParent(transform);
             _segments.Add(seg);
 
@@ -218,7 +315,6 @@ public class SnakeController : MonoBehaviour
         _pathLine.numCornerVertices = 8;
         _pathLine.numCapVertices = 8;
 
-        // Create an unlit material so the line is always visible
         var mat = new Material(Shader.Find("Sprites/Default"));
         mat.color = PathLineColor;
         _pathLine.material = mat;
@@ -228,6 +324,27 @@ public class SnakeController : MonoBehaviour
         _pathLineGO.SetActive(false);
     }
 
+    void BuildGrappleLine()
+    {
+        var go = new GameObject("GrappleLine");
+        go.transform.SetParent(transform);
+
+        _grappleLine = go.AddComponent<LineRenderer>();
+        _grappleLine.useWorldSpace = true;
+        _grappleLine.positionCount = 0;
+        _grappleLine.startWidth = RopeStartWidth;
+        _grappleLine.endWidth = RopeEndWidth;
+        _grappleLine.enabled = false;
+
+        if (GrappleMaterial == null)
+        {
+            GrappleMaterial = new Material(Shader.Find("Sprites/Default"));
+            GrappleMaterial.color = RopeColor;
+        }
+        _grappleLine.material = GrappleMaterial;
+        _grappleLine.startColor = RopeColor;
+        _grappleLine.endColor = RopeColor;
+    }
     float GetColliderHalfHeight(GameObject go)
     {
         Collider col = go.GetComponent<Collider>();
@@ -252,6 +369,33 @@ public class SnakeController : MonoBehaviour
         return go;
     }
 
+    Vector3 SnapToGround(Vector3 pos, float halfHeight)
+    {
+        Vector3 origin = new Vector3(pos.x, pos.y + 10f, pos.z);
+        if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 30f, GroundMask))
+            return new Vector3(pos.x, hit.point.y + halfHeight + GroundOffsetPadding, pos.z);
+        return pos;
+    }
+
+    Vector3 GetMouseWorldPosition()
+    {
+        if (Mouse.current == null) return Vector3.zero;
+
+        Vector2 mouseScreen = Mouse.current.position.ReadValue();
+        Ray ray = ClickCamera.ScreenPointToRay(new Vector3(mouseScreen.x, mouseScreen.y, 0f));
+
+        if (Physics.Raycast(ray, out RaycastHit hit, 200f, GroundMask))
+            return hit.point;
+
+        if (Mathf.Abs(ray.direction.y) > 0.001f)
+        {
+            float t = -ray.origin.y / ray.direction.y;
+            if (t > 0f) return ray.origin + ray.direction * t;
+        }
+
+        return Vector3.zero;
+    }
+
     void SeedTrail(Vector3 pos)
     {
         _trail = new Vector3[TrailResolution];
@@ -259,6 +403,52 @@ public class SnakeController : MonoBehaviour
         _trailWriteIdx = TrailResolution - 1;
         _trailCount = TrailResolution;
         _lastRecordedPos = pos;
+    }
+
+    void RecordTrail()
+    {
+        Vector3 pos = _head.transform.position;
+        if (Vector3.Distance(pos, _lastRecordedPos) < TrailMinDistance) return;
+        _trailWriteIdx = (_trailWriteIdx + 1) % TrailResolution;
+        _trail[_trailWriteIdx] = pos;
+        _lastRecordedPos = pos;
+        if (_trailCount < TrailResolution) _trailCount++;
+    }
+
+    Vector3 SampleTrail(float targetDist)
+    {
+        if (_trailCount <= 1) return _head.transform.position;
+
+        float accumulated = 0f;
+        int idxA = _trailWriteIdx;
+        Vector3 posA = _trail[idxA];
+
+        for (int step = 1; step < _trailCount; step++)
+        {
+            int idxB = (_trailWriteIdx - step + TrailResolution) % TrailResolution;
+            Vector3 posB = _trail[idxB];
+            float segLen = Vector3.Distance(posA, posB);
+            accumulated += segLen;
+
+            if (accumulated >= targetDist)
+            {
+                float overshoot = accumulated - targetDist;
+                float t = segLen > 0.0001f ? overshoot / segLen : 0f;
+                return Vector3.Lerp(posA, posB, t);
+            }
+
+            posA = posB;
+            idxA = idxB;
+        }
+
+        return _trail[(_trailWriteIdx - _trailCount + 1 + TrailResolution) % TrailResolution];
+    }
+
+    float GetCumulativeDist(int segIndex)
+    {
+        float d = 0f;
+        for (int j = 0; j <= segIndex; j++) d += _segEffSpacing[j];
+        return d;
     }
 
     void HandleInput()
@@ -278,7 +468,6 @@ public class SnakeController : MonoBehaviour
         {
             if (pressed && groundHit)
             {
-                // Begin a new draw stroke — cancel any current path/click movement
                 _isDragging = true;
                 _followingPath = false;
                 _hasTarget = false;
@@ -314,10 +503,8 @@ public class SnakeController : MonoBehaviour
 
                 if (_drawnRaw.Count >= 2)
                 {
-                    // Smooth the raw points through a Catmull-Rom spline
                     _drawnPath = CatmullRomSpline(_drawnRaw, PathSmoothing);
 
-                    // Snap each path point to the correct height above ground
                     for (int i = 0; i < _drawnPath.Count; i++)
                     {
                         Vector3 snapped = SnapToGround(_drawnPath[i], _headHalfHeight);
@@ -326,7 +513,6 @@ public class SnakeController : MonoBehaviour
                         _drawnPath[i] = snapped;
                     }
 
-                    // Update line to show the smoothed curve
                     List<Vector3> displayPts = new List<Vector3>(_drawnPath.Count);
                     foreach (var p in _drawnPath)
                         displayPts.Add(new Vector3(p.x, p.y - _headHalfHeight + PathLineYOffset, p.z));
@@ -337,27 +523,18 @@ public class SnakeController : MonoBehaviour
                 }
                 else
                 {
-                    // Too short — treat as a click-move if CanClickMove is also on
                     _pathLineGO.SetActive(false);
                     if (CanClickMove && groundHit)
                         SetClickTarget(hit.point);
                 }
             }
 
-            // While dragging we're in draw mode — don't also do click-move
             if (_isDragging) return;
         }
 
-        // Only fires if we're not in a draw-drag AND the press was a quick tap
-        // (draw mode already consumed held/released above)
         if (CanClickMove && !CanDrawPath && pressed && groundHit)
         {
             SetClickTarget(hit.point);
-        }
-        // If only click-move is on (draw off), handle normally
-        else if (CanClickMove && !CanDrawPath == false && pressed && groundHit && !_isDragging)
-        {
-            // Let draw path handle it — already done above
         }
     }
 
@@ -373,63 +550,10 @@ public class SnakeController : MonoBehaviour
                     ClickIndicatorLifetime);
     }
 
-    List<Vector3> CatmullRomSpline(List<Vector3> pts, int subdivisions)
-    {
-        var result = new List<Vector3>();
-        if (pts.Count < 2) return result;
-
-        // Pad the ends so the curve reaches first and last points
-        var padded = new List<Vector3>();
-        padded.Add(pts[0] + (pts[0] - pts[1]));          // ghost before start
-        padded.AddRange(pts);
-        padded.Add(pts[pts.Count - 1] +
-                   (pts[pts.Count - 1] - pts[pts.Count - 2])); // ghost after end
-
-        for (int i = 1; i < padded.Count - 2; i++)
-        {
-            Vector3 p0 = padded[i - 1];
-            Vector3 p1 = padded[i];
-            Vector3 p2 = padded[i + 1];
-            Vector3 p3 = padded[i + 2];
-
-            for (int s = 0; s < subdivisions; s++)
-            {
-                float t = (float)s / subdivisions;
-                float t2 = t * t;
-                float t3 = t2 * t;
-
-                Vector3 point = 0.5f * (
-                    (2f * p1) +
-                    (-p0 + p2) * t +
-                    (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
-                    (-p0 + 3f * p1 - 3f * p2 + p3) * t3
-                );
-                result.Add(point);
-            }
-        }
-        result.Add(padded[padded.Count - 2]); // add the final point
-        return result;
-    }
-
-    void RefreshLineRenderer(List<Vector3> points)
-    {
-        // Re-sync visual properties in case they were tweaked at runtime
-        _pathLine.startWidth = PathLineWidth;
-        _pathLine.endWidth = PathLineWidth;
-        _pathLine.startColor = PathLineColor;
-        _pathLine.endColor = new Color(PathLineColor.r, PathLineColor.g,
-                                         PathLineColor.b, PathLineColor.a * 0.4f);
-
-        _pathLine.positionCount = points.Count;
-        for (int i = 0; i < points.Count; i++)
-            _pathLine.SetPosition(i, points[i]);
-    }
-
     void MoveHead()
     {
         if (_followingPath && _drawnPath.Count > 0)
         {
-            // Advance path index: skip waypoints the head has already passed
             while (_pathIndex < _drawnPath.Count - 1)
             {
                 float dist = Vector3.Distance(_head.transform.position, _drawnPath[_pathIndex]);
@@ -439,7 +563,6 @@ public class SnakeController : MonoBehaviour
 
             if (_pathIndex >= _drawnPath.Count)
             {
-                // Reached end of path
                 _followingPath = false;
                 _pathLineGO.SetActive(false);
                 return;
@@ -447,8 +570,6 @@ public class SnakeController : MonoBehaviour
 
             _targetPosition = _drawnPath[_pathIndex];
             _hasTarget = true;
-
-            // Fade the line as the head eats through it
             UpdatePathLineFade();
         }
 
@@ -483,16 +604,32 @@ public class SnakeController : MonoBehaviour
                 Quaternion.LookRotation(faceDir.normalized), Time.deltaTime * TurnSpeed);
     }
 
-    // Trim the line so it disappears behind the head as it travels
+    void UpdateHeadSpeed()
+    {
+        _currentSpeed = (_head.transform.position - _prevHeadPos).magnitude / Time.deltaTime;
+        _prevHeadPos = _head.transform.position;
+    }
+
+    void RefreshLineRenderer(List<Vector3> points)
+    {
+        _pathLine.startWidth = PathLineWidth;
+        _pathLine.endWidth = PathLineWidth;
+        _pathLine.startColor = PathLineColor;
+        _pathLine.endColor = new Color(PathLineColor.r, PathLineColor.g,
+                                         PathLineColor.b, PathLineColor.a * 0.4f);
+
+        _pathLine.positionCount = points.Count;
+        for (int i = 0; i < points.Count; i++)
+            _pathLine.SetPosition(i, points[i]);
+    }
+
     void UpdatePathLineFade()
     {
         if (_pathIndex <= 0 || _pathIndex >= _drawnPath.Count) return;
 
-        // Build display points from current index onward (behind-head portion hidden)
         int remaining = _drawnPath.Count - _pathIndex;
         if (remaining < 2) { _pathLineGO.SetActive(false); return; }
 
-        // Shift Y back to visual offset
         _pathLine.positionCount = remaining + 1;
         _pathLine.SetPosition(0, new Vector3(
             _head.transform.position.x,
@@ -507,34 +644,45 @@ public class SnakeController : MonoBehaviour
         }
     }
 
-    Vector3 SnapToGround(Vector3 pos, float halfHeight)
+    List<Vector3> CatmullRomSpline(List<Vector3> pts, int subdivisions)
     {
-        Vector3 origin = new Vector3(pos.x, pos.y + 10f, pos.z);
-        if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 30f, GroundMask))
-            return new Vector3(pos.x, hit.point.y + halfHeight + GroundOffsetPadding, pos.z);
-        return pos;
-    }
+        var result = new List<Vector3>();
+        if (pts.Count < 2) return result;
 
-    void UpdateHeadSpeed()
-    {
-        _currentSpeed = (_head.transform.position - _prevHeadPos).magnitude / Time.deltaTime;
-        _prevHeadPos = _head.transform.position;
-    }
+        var padded = new List<Vector3>();
+        padded.Add(pts[0] + (pts[0] - pts[1]));
+        padded.AddRange(pts);
+        padded.Add(pts[pts.Count - 1] + (pts[pts.Count - 1] - pts[pts.Count - 2]));
 
-    void RecordTrail()
-    {
-        Vector3 pos = _head.transform.position;
-        if (Vector3.Distance(pos, _lastRecordedPos) < TrailMinDistance) return;
-        _trailWriteIdx = (_trailWriteIdx + 1) % TrailResolution;
-        _trail[_trailWriteIdx] = pos;
-        _lastRecordedPos = pos;
-        if (_trailCount < TrailResolution) _trailCount++;
+        for (int i = 1; i < padded.Count - 2; i++)
+        {
+            Vector3 p0 = padded[i - 1];
+            Vector3 p1 = padded[i];
+            Vector3 p2 = padded[i + 1];
+            Vector3 p3 = padded[i + 2];
+
+            for (int s = 0; s < subdivisions; s++)
+            {
+                float t = (float)s / subdivisions;
+                float t2 = t * t;
+                float t3 = t2 * t;
+
+                Vector3 point = 0.5f * (
+                    (2f * p1) +
+                    (-p0 + p2) * t +
+                    (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                    (-p0 + 3f * p1 - 3f * p2 + p3) * t3
+                );
+                result.Add(point);
+            }
+        }
+        result.Add(padded[padded.Count - 2]);
+        return result;
     }
 
     void UpdateSegments()
     {
         float speedRatio = Mathf.Clamp01(_currentSpeed / Mathf.Max(MoveSpeed, 0.001f));
-
         float targetStretchMult = Mathf.Lerp(MinSpacingStretch, MaxSpacingStretch, speedRatio);
 
         for (int i = 0; i < SegmentCount; i++)
@@ -612,41 +760,199 @@ public class SnakeController : MonoBehaviour
         }
     }
 
-    float GetCumulativeDist(int segIndex)
+    void HandleBallThrowInput()
     {
-        float d = 0f;
-        for (int j = 0; j <= segIndex; j++) d += _segEffSpacing[j];
-        return d;
+        if (!_hasBalls) return;
+        if (BallPrefab == null) return;
+
+        if (Keyboard.current != null && Keyboard.current.digit1Key.wasPressedThisFrame)
+            ThrowBall();
     }
 
-    Vector3 SampleTrail(float targetDist)
+    void ThrowBall()
     {
-        if (_trailCount <= 1) return _head.transform.position;
+        if (HeadTransform == null) return;
 
-        float accumulated = 0f;
-        int idxA = _trailWriteIdx;
-        Vector3 posA = _trail[idxA];
+        Ray ray = ClickCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
+        Vector3 targetPoint;
 
-        for (int step = 1; step < _trailCount; step++)
+        if (Physics.Raycast(ray, out RaycastHit hit))
+            targetPoint = hit.point;
+        else
+            targetPoint = ray.GetPoint(30f);
+
+        Vector3 spawnPos = HeadTransform.position;
+        GameObject ball = Instantiate(BallPrefab, spawnPos, Quaternion.identity);
+        Rigidbody rb = ball.GetComponent<Rigidbody>();
+
+        if (rb != null)
+            rb.linearVelocity = CalculateBallArcVelocity(spawnPos, targetPoint, BallArcHeight);
+    }
+
+    Vector3 CalculateBallArcVelocity(Vector3 start, Vector3 end, float height)
+    {
+        float gravity = Physics.gravity.y;
+        Vector3 displacement = end - start;
+        Vector3 displacementXZ = new Vector3(displacement.x, 0, displacement.z);
+
+        float timeUp = Mathf.Sqrt(-2 * height / gravity);
+        float timeDown = Mathf.Sqrt(2 * (displacement.y - height) / gravity);
+        float totalTime = timeUp + timeDown;
+
+        Vector3 velocityY = Vector3.up * Mathf.Sqrt(-2 * gravity * height);
+        Vector3 velocityXZ = displacementXZ / totalTime;
+        return velocityXZ + velocityY;
+    }
+
+    void HandleGrappleInput()
+    {
+        if (!_hasGrapple) return;
+
+        if (Keyboard.current != null && Keyboard.current.digit2Key.wasPressedThisFrame)
         {
-            int idxB = (_trailWriteIdx - step + TrailResolution) % TrailResolution;
-            Vector3 posB = _trail[idxB];
-            float segLen = Vector3.Distance(posA, posB);
+            if (!_isGrappling)
+                TryStartGrapple();
+            else
+                StopGrapple();
+        }
+    }
 
-            accumulated += segLen;
+    void TryStartGrapple()
+    {
+        if (HeadTransform == null || ClickCamera == null) return;
 
-            if (accumulated >= targetDist)
-            {
-                float overshoot = accumulated - targetDist;
-                float t = segLen > 0.0001f ? overshoot / segLen : 0f;
-                return Vector3.Lerp(posA, posB, t);
-            }
+        Vector3 mouseWorld = GetMouseWorldPosition();
+        if (mouseWorld == Vector3.zero) return;
 
-            posA = posB;
-            idxA = idxB;
+        Vector3 headPos = HeadTransform.position;
+        Vector3 direction = mouseWorld - headPos;
+        direction.y = 0f;
+        float distance = Mathf.Min(direction.magnitude, GrappleMaxDistance);
+
+        if (distance < 0.1f) return;
+        direction = direction.normalized;
+
+        if (Physics.SphereCast(headPos, 0.3f, direction, out RaycastHit hit, distance, GrappleableLayers))
+        {
+            _grapplePoint = hit.point;
+            _grabbedRb = hit.rigidbody; // null if static
+
+            _isGrappling = true;
+            _ropeFullyExtended = false;
+            _wobbleFade = 1f;
+            _grappleStartTime = Time.time;
+            _animatedRopeEnd = headPos;
+
+            _grappleLine.enabled = true;
+            StartCoroutine(AnimateRopeExtend(_grapplePoint));
+        }
+    }
+
+    void StopGrapple()
+    {
+        _isGrappling = false;
+        _ropeFullyExtended = false;
+        _grabbedRb = null;
+        _grappleLine.positionCount = 0;
+        _grappleLine.enabled = false;
+        StopAllCoroutines();
+    }
+
+    void PullGrabbedObject()
+    {
+        if (HeadTransform == null || _grabbedRb == null)
+        {
+            StopGrapple();
+            return;
         }
 
-        return _trail[(_trailWriteIdx - _trailCount + 1 + TrailResolution) % TrailResolution];
+        Vector3 headPos = HeadTransform.position;
+        Vector3 toPlayer = headPos - _grabbedRb.position;
+        toPlayer.y = 0f;
+        float dist = toPlayer.magnitude;
+
+        if (dist <= GrappleArrivalDistance)
+        {
+            _grabbedRb.linearVelocity = Vector3.zero;
+            StopGrapple();
+            return;
+        }
+
+        _grabbedRb.AddForce(toPlayer.normalized * GrapplePullSpeed, ForceMode.Acceleration);
+    }
+
+    IEnumerator AnimateRopeExtend(Vector3 target)
+    {
+        Vector3 start = HeadTransform.position;
+        float elapsed = 0f;
+
+        while (elapsed < RopeExtendDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / RopeExtendDuration);
+
+            Vector3 basePos = Vector3.Lerp(start, target, t);
+            float arc = Mathf.Sin(Mathf.PI * t) * RopeArcHeight;
+            _animatedRopeEnd = basePos + Vector3.up * arc;
+
+            yield return null;
+        }
+
+        _animatedRopeEnd = target;
+        _ropeFullyExtended = true;
+
+        if (_grabbedRb == null)
+        {
+            yield return new WaitForSeconds(0.2f);
+            StopGrapple();
+        }
+    }
+
+    void DrawGrappleRope()
+    {
+        if (HeadTransform == null) return;
+
+        Vector3 start = HeadTransform.position;
+        Vector3 end;
+
+        if (_ropeFullyExtended && _grabbedRb != null)
+            end = _grabbedRb.position;
+        else if (_ropeFullyExtended)
+            end = _grapplePoint;
+        else
+            end = _animatedRopeEnd;
+
+        int segments = RopeSegments;
+        _grappleLine.positionCount = segments + 1;
+
+        float timeSinceStart = Time.time - _grappleStartTime;
+        float wobble = WobbleAmplitude * Mathf.Exp(-WobbleDamping * Mathf.Max(0f, timeSinceStart - RopeExtendDuration));
+
+        Vector3 forward = end - start;
+        forward.y = 0f;
+        Vector3 perp = Vector3.Cross(forward.normalized, Vector3.up);
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float t = (float)i / segments;
+            Vector3 pos = Vector3.Lerp(start, end, t);
+
+            float envelope = Mathf.Sin(Mathf.PI * t);
+            float osc = Mathf.Sin(WobbleFrequency * t * Mathf.PI * 2f + Time.time * 8f) * wobble * envelope;
+            pos += perp * osc;
+
+            _grappleLine.SetPosition(i, pos);
+        }
+    }
+
+    void HandleGlideInput()
+    {
+        if (!_hasGlide) return;
+
+        if (Keyboard.current != null && Keyboard.current.digit3Key.wasPressedThisFrame)
+        {
+            // TODO: toggle glide on/off — plug your fly logic in here
+        }
     }
 
     public void MoveTo(Vector3 worldPosition)
@@ -670,8 +976,4 @@ public class SnakeController : MonoBehaviour
         for (int i = 0; i < _segments.Count; i++)
             _segments[i].transform.position = p;
     }
-
-    public float CurrentSpeed => _currentSpeed;
-    public GameObject Head => _head;
-    public IReadOnlyList<GameObject> Segments => _segments;
 }

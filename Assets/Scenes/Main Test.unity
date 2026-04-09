@@ -1078,9 +1078,7 @@ MonoBehaviour:
   givesBalls: 1
   givesGrapple: 0
   givesGlide: 0
-  ballThrowScript: {fileID: 1896718079}
-  grappleScript: {fileID: 0}
-  flyScript: {fileID: 0}
+  snakeController: {fileID: 0}
 --- !u!1 &1053037315
 GameObject:
   m_ObjectHideFlags: 0
@@ -1803,8 +1801,6 @@ GameObject:
   - component: {fileID: 1896718072}
   - component: {fileID: 1896718076}
   - component: {fileID: 1896718077}
-  - component: {fileID: 1896718078}
-  - component: {fileID: 1896718079}
   m_Layer: 0
   m_Name: PlayerBody
   m_TagString: Player
@@ -1978,54 +1974,27 @@ MonoBehaviour:
   CameraFollow: {fileID: 1998033013}
   GroundOffsetPadding: 0
   ClickIndicatorLifetime: 1.2
---- !u!114 &1896718078
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1896718069}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 22a16bd152386bc4f8e4e0e2aa668430, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SnakeGrapple
-  snakeController: {fileID: 1896718077}
-  gameCamera: {fileID: 1998033015}
-  maxDistance: 15
-  pullSpeed: 12
-  arrivalDistance: 1.5
+  BallPrefab: {fileID: 1208084425930374401, guid: a2305dfaf810ae94a8f331ee7bf14223, type: 3}
+  BallArcHeight: 5
+  _hasBalls: 0
+  GrappleMaxDistance: 15
+  GrapplePullSpeed: 12
+  GrappleArrivalDistance: 1.5
   GrappleableLayers:
     serializedVersion: 2
     m_Bits: 4294967295
-  GroundMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  ropeExtendDuration: 0.15
-  ropeArcHeight: 0.3
+  RopeExtendDuration: 0.15
+  RopeArcHeight: 0.3
   GrappleMaterial: {fileID: 0}
-  ropeColor: {r: 0.95, g: 0.3, b: 0.2, a: 1}
-  ropeStartWidth: 0.15
-  ropeEndWidth: 0.06
-  ropeSegments: 12
-  wobbleAmplitude: 0.12
-  wobbleFrequency: 6
-  wobbleDamping: 4
---- !u!114 &1896718079
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1896718069}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 261b2f8208e15ab45a199b8f4c4a0c2a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::BallThrower
-  ballPrefab: {fileID: 1208084425930374401, guid: a2305dfaf810ae94a8f331ee7bf14223, type: 3}
-  throwPoint: {fileID: 9170580656883863073}
-  arcHeight: 5
+  RopeColor: {r: 0.95, g: 0.3, b: 0.2, a: 1}
+  RopeStartWidth: 0.15
+  RopeEndWidth: 0.06
+  RopeSegments: 12
+  WobbleAmplitude: 0.12
+  WobbleFrequency: 6
+  WobbleDamping: 4
+  _hasGrapple: 0
+  _hasGlide: 0
 --- !u!1 &1970523255
 GameObject:
   m_ObjectHideFlags: 0
@@ -2182,9 +2151,7 @@ MonoBehaviour:
   givesBalls: 0
   givesGrapple: 1
   givesGlide: 0
-  ballThrowScript: {fileID: 0}
-  grappleScript: {fileID: 1896718078}
-  flyScript: {fileID: 0}
+  snakeController: {fileID: 0}
 --- !u!1 &1998033011
 GameObject:
   m_ObjectHideFlags: 0
