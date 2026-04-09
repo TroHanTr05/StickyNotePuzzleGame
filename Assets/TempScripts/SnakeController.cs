@@ -76,7 +76,7 @@ public class SnakeController : MonoBehaviour
 
     [Header("Ability — Ball Throw (1)")]
     public GameObject BallPrefab;
-    public float BallArcHeight = 5f;
+    public float BallLaunchSpeed = 15f;
     public string BallTag = "Ball";
 
     [SerializeField] private bool _hasBalls = false;
@@ -88,7 +88,7 @@ public class SnakeController : MonoBehaviour
             if (_hasBalls == value) return;
             _hasBalls = value;
             if (_hasBalls) PowerUpEvents.RaisePowerUpCollected(PowerUpType.Balls);
-            else           PowerUpEvents.RaisePowerUpLost(PowerUpType.Balls);
+            else PowerUpEvents.RaisePowerUpLost(PowerUpType.Balls);
         }
     }
 
@@ -123,7 +123,7 @@ public class SnakeController : MonoBehaviour
             if (_hasGrapple == value) return;
             _hasGrapple = value;
             if (_hasGrapple) PowerUpEvents.RaisePowerUpCollected(PowerUpType.Grapple);
-            else             PowerUpEvents.RaisePowerUpLost(PowerUpType.Grapple);
+            else PowerUpEvents.RaisePowerUpLost(PowerUpType.Grapple);
             if (!_hasGrapple && _isGrappling) StopGrapple();
         }
     }
@@ -138,7 +138,7 @@ public class SnakeController : MonoBehaviour
             if (_hasGlide == value) return;
             _hasGlide = value;
             if (_hasGlide) PowerUpEvents.RaisePowerUpCollected(PowerUpType.Glide);
-            else           PowerUpEvents.RaisePowerUpLost(PowerUpType.Glide);
+            else PowerUpEvents.RaisePowerUpLost(PowerUpType.Glide);
         }
     }
 
@@ -413,8 +413,8 @@ public class SnakeController : MonoBehaviour
         var mouse = Mouse.current;
         if (mouse == null) return;
 
-        bool pressed  = mouse.leftButton.wasPressedThisFrame;
-        bool held     = mouse.leftButton.isPressed;
+        bool pressed = mouse.leftButton.wasPressedThisFrame;
+        bool held = mouse.leftButton.isPressed;
         bool released = mouse.leftButton.wasReleasedThisFrame;
 
         Vector2 screenPos = mouse.position.ReadValue();
@@ -777,10 +777,12 @@ public class SnakeController : MonoBehaviour
     {
         if (HeadTransform == null) return;
 
-        Vector3 targetPoint = GetMouseGroundPosition();
-        if (targetPoint == Vector3.zero) return;
-
         Vector3 spawnPos = HeadTransform.position;
+        Vector3 targetPoint = GetBallTargetPoint(spawnPos);
+
+        if (!CalculateLaunchVelocity(spawnPos, targetPoint, BallLaunchSpeed, out Vector3 velocity))
+            return;
+
         GameObject ball = Instantiate(BallPrefab, spawnPos, Quaternion.identity);
 
         if (!string.IsNullOrEmpty(BallTag))
@@ -788,31 +790,48 @@ public class SnakeController : MonoBehaviour
 
         Rigidbody rb = ball.GetComponent<Rigidbody>();
         if (rb != null)
-            rb.linearVelocity = CalculateBallArcVelocity(spawnPos, targetPoint, BallArcHeight);
+            rb.linearVelocity = velocity;
     }
 
-    Vector3 CalculateBallArcVelocity(Vector3 start, Vector3 end, float height)
+    Vector3 GetBallTargetPoint(Vector3 origin)
     {
-        float gravity = Physics.gravity.y;
-        Vector3 displacement = end - start;
-        Vector3 displacementXZ = new Vector3(displacement.x, 0, displacement.z);
+        Plane plane = new Plane(Vector3.up, origin);
+        Ray ray = ClickCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
 
-        float peakY = Mathf.Max(start.y, end.y) + height;
-        float riseHeight = peakY - start.y;
-        float fallHeight = peakY - end.y;
+        if (plane.Raycast(ray, out float enter))
+            return ray.GetPoint(enter);
 
-        riseHeight = Mathf.Max(riseHeight, 0.1f);
-        fallHeight = Mathf.Max(fallHeight, 0.1f);
+        return origin;
+    }
 
-        float timeUp   = Mathf.Sqrt(2f * riseHeight / -gravity);
-        float timeDown = Mathf.Sqrt(2f * fallHeight / -gravity);
-        float totalTime = timeUp + timeDown;
+    bool CalculateLaunchVelocity(Vector3 start, Vector3 target, float speed, out Vector3 velocity)
+    {
+        velocity = Vector3.zero;
 
-        if (totalTime < 0.01f) totalTime = 0.5f;
+        Vector3 toTarget = target - start;
+        Vector3 toTargetXZ = new Vector3(toTarget.x, 0, toTarget.z);
 
-        Vector3 velocityY  = Vector3.up * Mathf.Sqrt(-2f * gravity * riseHeight);
-        Vector3 velocityXZ = displacementXZ / totalTime;
-        return velocityXZ + velocityY;
+        float y = toTarget.y;
+        float x = toTargetXZ.magnitude;
+        float gravity = Mathf.Abs(Physics.gravity.y);
+        float speedSquared = speed * speed;
+
+        float underRoot = speedSquared * speedSquared -
+                          gravity * (gravity * x * x + 2 * y * speedSquared);
+
+        if (underRoot < 0)
+            return false;
+
+        float root = Mathf.Sqrt(underRoot);
+        float angle = Mathf.Atan2(speedSquared + root, gravity * x);
+
+        Vector3 direction = toTargetXZ.normalized;
+        velocity = direction * speed * Mathf.Cos(angle) + Vector3.up * speed * Mathf.Sin(angle);
+
+        if (float.IsNaN(velocity.x) || float.IsNaN(velocity.y) || float.IsNaN(velocity.z))
+            return false;
+
+        return true;
     }
 
     void HandleGrappleInput()
