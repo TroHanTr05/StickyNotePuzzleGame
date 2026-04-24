@@ -1075,10 +1075,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f6eff9103f976b34f8362d4a229e4cfa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SimplePowerUp
-  givesBalls: 1
-  givesGrapple: 0
-  givesGlide: 0
-  snakeController: {fileID: 0}
 --- !u!1 &1053037315
 GameObject:
   m_ObjectHideFlags: 0
@@ -2798,6 +2794,15 @@ MonoBehaviour:
   CameraFollow: {fileID: 1998033013}
   GroundOffsetPadding: 0
   ClickIndicatorLifetime: 1.2
+  BallPrefab: {fileID: 1208084425930374401, guid: a2305dfaf810ae94a8f331ee7bf14223, type: 3}
+  ThrowForce: 20
+  ThrowUpwardBias: 0.1
+  ThrowCooldown: 0.5
+  MaxAimDistance: 100
+  AimLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  ShowThrowDebugRay: 1
 --- !u!1 &1970523255
 GameObject:
   m_ObjectHideFlags: 0
@@ -2951,10 +2956,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f6eff9103f976b34f8362d4a229e4cfa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SimplePowerUp
-  givesBalls: 0
-  givesGrapple: 1
-  givesGlide: 0
-  snakeController: {fileID: 0}
 --- !u!1 &1998033011
 GameObject:
   m_ObjectHideFlags: 0
