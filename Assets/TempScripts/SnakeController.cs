@@ -8,31 +8,52 @@ public class SnakeController : MonoBehaviour
     public GameObject HeadPrefab;
     public GameObject SegmentPrefab;
 
-    [Header("Inspector Hierarchy")]
-    [Tooltip("Optional parent for the generated head and segments. If empty, the controller object is used.")]
+    [Header("Hierarchy")]
+    [Tooltip("Optional root parent. Defaults to this transform.")]
     public Transform PlayerBody;
     public string HeadName = "Head";
     public string SegmentFolderName = "Segments";
     public string PathFolderName = "Runtime Helpers";
 
     [Header("Snake Shape")]
-    [Range(1, 64)] public int SegmentCount = 12;
-    [Range(0.02f, 5f)] public float MinSpacing = 0.3f;
-    [Range(0.02f, 5f)] public float MaxSpacing = 0.8f;
+    [Range(1, 2000)] public int SegmentCount = 12;
+    [Tooltip("Arc-distance between neighbouring segments at rest stretch (= 1).")]
+    [Range(0.05f, 5f)] public float SegmentSpacing = 0.35f;
 
-    [Header("Slinky — Squish on Stop")]
-    [Range(0f, 20f)] public float SquishSpeed = 4f;
+    [Header("Stretch — Levels  (0 = squashed · 1 = normal · 2 = stretched)")]
+    [Range(0f, 2f)] public float StationaryLevel = 0.55f;
+    [Range(0f, 2f)] public float NormalLevel = 1.0f;
+    [Range(0f, 2f)] public float SprintLevel = 1.65f;
+
+    [Header("Stretch — Limits & Response")]
+    [Range(0.02f, 0.6f)] public float MinSquash = 0.12f;
+    [Range(1.0f, 2.5f)] public float MaxStretchCap = 1.8f;
+    [Min(0f)] public float StretchResponse = 8f;
+
+    [Header("Stretch — Slinky Propagation (head → tail)")]
+    [Min(0.01f)] public float FollowRate = 1.5f;
+    [Range(0f, 1f)] public float HeadPull = 0.9f;
+    [Range(0f, 0.2f)] public float RestBleed = 0.05f;
 
     [Header("Movement")]
     [Range(0.5f, 30f)] public float MoveSpeed = 6f;
     [Range(1f, 40f)] public float TurnSpeed = 10f;
+    [Range(1f, 40f)] public float HeadAccelRate = 6f;
     [Range(0.01f, 2f)] public float ArrivalThreshold = 0.15f;
     [Range(0f, 0.98f)] public float MoveSmoothing = 0.18f;
     [Range(0.1f, 5f)] public float GroundCheckAhead = 1.0f;
 
+    [Tooltip("Speed below which the body starts squashing toward StationaryLevel.")]
+    [Min(0f)] public float StallSpeedThreshold = 0.3f;
+
+    [Header("Sprint")]
+    public bool EnableSprint = true;
+    [Range(1f, 4f)] public float SprintMultiplier = 1.8f;
+    public float SprintSecondsPerLoss = 2f;
+
     [Header("Trail Resolution")]
-    [Range(200, 4000)] public int TrailResolution = 1200;
-    [Range(0.001f, 0.5f)] public float TrailMinDistance = 0.015f;
+    [Range(400, 8000)] public int TrailResolution = 2000;
+    [Range(0.001f, 0.2f)] public float TrailMinDist = 0.01f;
 
     [Header("Input Modes")]
     public bool CanClickMove = true;
@@ -50,13 +71,11 @@ public class SnakeController : MonoBehaviour
     public Camera ClickCamera;
     public OrthoCameraFollow CameraFollow;
 
-    [Tooltip("Extra lift above the actual ground. Usually leave at 0.")]
+    [Header("Collision")]
+    public LayerMask CollisionMask = ~0;
+    [Range(0.05f, 2f)] public float CollisionRadius = 0.35f;
     [Range(-0.3f, 0.3f)] public float GroundOffsetPadding = 0f;
-
-    [Tooltip("Extra manual vertical correction after automatic ground snapping. Negative lowers the snake, positive raises it.")]
     [Range(-2f, 2f)] public float HeadGroundHeightCorrection = 0f;
-
-    [Tooltip("Extra manual vertical correction after automatic ground snapping. Negative lowers the segments, positive raises them.")]
     [Range(-2f, 2f)] public float SegmentGroundHeightCorrection = 0f;
 
     [Header("Ball Throwing")]
@@ -68,42 +87,49 @@ public class SnakeController : MonoBehaviour
     public LayerMask AimLayerMask = ~0;
     public bool ShowThrowDebugRay = true;
 
-    private GameObject _head;
-    private readonly List<GameObject> _segments = new List<GameObject>();
-
-    private Transform _segmentFolder;
-    private Transform _runtimeFolder;
-
-    private Vector3[] _nodePos;
-
-    private Vector3[] _trail;
-    private int _trailWriteIdx = 0;
-    private int _trailCount = 0;
-    private Vector3 _lastRecordedPos;
-
-    private Vector3 _targetPosition;
-    private bool _hasTarget = false;
-    private Vector3 _smoothVelocity = Vector3.zero;
-    private float _currentSpeed = 0f;
-    private Vector3 _prevHeadPos;
-
-    private float _headGroundHeight;
-    private float _segGroundHeight;
-
-    private readonly List<Vector3> _drawnRaw = new List<Vector3>();
-    private List<Vector3> _drawnPath = new List<Vector3>();
-    private int _pathIndex = 0;
-    private bool _followingPath = false;
-    private bool _isDragging = false;
-    private Vector3 _lastDrawnPos;
-    private LineRenderer _pathLine;
-    private GameObject _pathLineGO;
-
-    private float _nextThrowTime = 0f;
-
     public float CurrentSpeed => _currentSpeed;
     public GameObject Head => _head;
     public IReadOnlyList<GameObject> Segments => _segments;
+
+
+    GameObject _head;
+    readonly List<GameObject> _segments = new();
+    Transform _segmentFolder, _runtimeFolder;
+    LineRenderer _pathLine;
+    GameObject _pathLineGO;
+
+    float _headGroundH, _segGroundH;
+
+    struct TrailNode { public Vector3 p; public float s; } // s = cumulative arc length
+    readonly List<TrailNode> _trail = new();
+    float _trailLength;
+    Vector3 _lastRecordedPos;
+
+    float _tailSParam;
+
+    readonly List<float> _stretch = new();
+    float _headStretch = 1f;
+    float _smoothedSpeed = 0f;
+
+    Vector3 _nodeHead;          // current head world position (grounded)
+    Vector3 _prevHeadPos;
+    Vector3 _smoothVelocity;
+    float _currentSpeed;
+    float _targetSpeed;
+
+    Vector3 _targetPosition;
+    bool _hasTarget;
+    readonly List<Vector3> _drawnRaw = new();
+    readonly List<Vector3> _drawnPath = new();
+    int _pathIndex;
+    bool _followingPath;
+    bool _isDragging;
+    Vector3 _lastDrawnPos;
+
+    float _sprintAccum;
+    int _minSegCount;
+
+    float _nextThrowTime;
 
     void Start()
     {
@@ -111,7 +137,7 @@ public class SnakeController : MonoBehaviour
 
         SetupHierarchyFolders();
         BuildSnake();
-        SeedTrail(_head.transform.position);
+        SeedTrail(_nodeHead);
         BuildPathLine();
 
         if (CameraFollow != null)
@@ -122,170 +148,98 @@ public class SnakeController : MonoBehaviour
     {
         HandleInput();
         HandleThrowInput();
-        MoveHead();
-        UpdateHeadSpeed();
-        RecordTrail();
-        UpdateChain();
-        ApplyNodePositions();
-    }
 
+        MoveHead();
+        UpdateSpeed();
+
+        // Stretch
+        bool sprinting = EnableSprint && Input.GetKey(KeyCode.Mouse0) &&
+                         _segments.Count > _minSegCount;
+        HandleSprintDecay(sprinting);
+        UpdateStretch(sprinting);
+
+        RecordTrail();
+        PlaceSegments();
+        ApplyTransforms();
+    }
     void SetupHierarchyFolders()
     {
-        if (PlayerBody == null)
-            PlayerBody = transform;
+        if (PlayerBody == null) PlayerBody = transform;
+        gameObject.tag = "Player";
+        if (PlayerBody != transform) PlayerBody.gameObject.tag = "Player";
 
         _segmentFolder = GetOrCreateChild(PlayerBody, SegmentFolderName);
         _runtimeFolder = GetOrCreateChild(PlayerBody, PathFolderName);
+        _segmentFolder.gameObject.tag = "Player";
     }
 
-    Transform GetOrCreateChild(Transform parent, string childName)
+    Transform GetOrCreateChild(Transform parent, string name)
     {
-        Transform existing = parent.Find(childName);
-        if (existing != null) return existing;
-
-        GameObject folder = new GameObject(childName);
-        folder.transform.SetParent(parent, false);
-        folder.transform.localPosition = Vector3.zero;
-        folder.transform.localRotation = Quaternion.identity;
-        folder.transform.localScale = Vector3.one;
-        return folder.transform;
-    }
-
-    void HandleThrowInput()
-    {
-        var mouse = Mouse.current;
-        if (mouse == null) return;
-
-        if (mouse.rightButton.wasPressedThisFrame && Time.time >= _nextThrowTime)
-        {
-            ThrowBall();
-            _nextThrowTime = Time.time + ThrowCooldown;
-        }
-    }
-
-    void ThrowBall()
-    {
-        if (BallPrefab == null)
-        {
-            Debug.LogWarning("SnakeController: BallPrefab is not assigned!");
-            return;
-        }
-
-        Vector3 spawnPos = _head.transform.position;
-        Vector3 aimTarget = GetAimTarget(spawnPos);
-
-        Vector3 throwDir = (aimTarget - spawnPos).normalized;
-        throwDir += Vector3.up * ThrowUpwardBias;
-        throwDir.Normalize();
-
-        GameObject ball = Instantiate(BallPrefab, spawnPos, Quaternion.identity);
-
-        Collider ballCol = ball.GetComponent<Collider>();
-        if (ballCol != null)
-            IgnoreSnakeCollision(ballCol);
-
-        Rigidbody rb = ball.GetComponent<Rigidbody>();
-        if (rb != null)
-            rb.AddForce(throwDir * ThrowForce, ForceMode.Impulse);
-        else
-            Debug.LogWarning("SnakeController: BallPrefab is missing a Rigidbody!");
-
-        Destroy(ball, 10f);
-    }
-
-    void IgnoreSnakeCollision(Collider ballCol)
-    {
-        Collider headCol = _head.GetComponent<Collider>();
-        if (headCol != null)
-            Physics.IgnoreCollision(ballCol, headCol);
-
-        foreach (GameObject seg in _segments)
-        {
-            Collider segCol = seg.GetComponent<Collider>();
-            if (segCol != null)
-                Physics.IgnoreCollision(ballCol, segCol);
-        }
-    }
-
-    Vector3 GetAimTarget(Vector3 spawnPos)
-    {
-        var mouse = Mouse.current;
-        Vector2 screenPos = mouse.position.ReadValue();
-        Ray ray = ClickCamera.ScreenPointToRay(new Vector3(screenPos.x, screenPos.y, 0f));
-
-        if (ShowThrowDebugRay)
-            Debug.DrawRay(ray.origin, ray.direction * MaxAimDistance, Color.red, 0.5f);
-
-        if (Physics.Raycast(ray, out RaycastHit hit, MaxAimDistance, AimLayerMask))
-            return hit.point;
-
-        return ray.origin + ray.direction * MaxAimDistance;
+        Transform t = parent.Find(name);
+        if (t) return t;
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        return go.transform;
     }
 
     void BuildSnake()
     {
-        int nodeCount = SegmentCount + 1;
-        _nodePos = new Vector3[nodeCount];
+        Vector3 start = SnapToGround(transform.position, 0f);
+        if (start == Vector3.zero) start = transform.position;
 
-        Vector3 startGrounded = SnapToGround(transform.position, 0f);
-        if (startGrounded == Vector3.zero)
-            startGrounded = transform.position;
-
-        _head = HeadPrefab != null
-            ? Instantiate(HeadPrefab, startGrounded, Quaternion.identity, PlayerBody)
-            : MakeSphere(startGrounded, new Color(0.95f, 0.3f, 0.2f), 0.55f, PlayerBody);
-
+        // Head
+        _head = HeadPrefab
+            ? Instantiate(HeadPrefab, start, Quaternion.identity, PlayerBody)
+            : MakeSphere(start, new Color(0.95f, 0.3f, 0.2f), 0.55f, PlayerBody);
         _head.name = HeadName;
         _head.tag = "Player";
 
-        _headGroundHeight = ResolveGroundHeight(_head, HeadGroundHeightCorrection);
-        Vector3 headStart = SnapToGround(startGrounded, _headGroundHeight);
-        if (headStart == Vector3.zero)
-            headStart = startGrounded + Vector3.up * _headGroundHeight;
+        _headGroundH = ResolveGroundHeight(_head, HeadGroundHeightCorrection);
+        Vector3 headStart = SnapToGround(start, _headGroundH);
+        if (headStart == Vector3.zero) headStart = start + Vector3.up * _headGroundH;
 
         _head.transform.position = headStart;
+        _nodeHead = headStart;
         _prevHeadPos = headStart;
         _targetPosition = headStart;
-        _nodePos[0] = headStart;
 
+        // Segments
         for (int i = 0; i < SegmentCount; i++)
         {
-            Vector3 rawPos = transform.position - transform.forward * MinSpacing * (i + 1);
-            Vector3 segPos = SnapToGround(rawPos, 0f);
-            if (segPos == Vector3.zero)
-                segPos = rawPos;
+            Vector3 raw = transform.position - transform.forward * SegmentSpacing * (i + 1);
+            Vector3 pos = SnapToGround(raw, 0f);
+            if (pos == Vector3.zero) pos = raw;
 
-            GameObject seg = SegmentPrefab != null
-                ? Instantiate(SegmentPrefab, segPos, Quaternion.identity, _segmentFolder)
-                : MakeSphere(segPos, Color.Lerp(
-                    new Color(0.2f, 0.85f, 0.45f),
-                    new Color(0.15f, 0.45f, 0.9f),
-                    (float)i / Mathf.Max(1, SegmentCount - 1)), 0.45f, _segmentFolder);
+            GameObject seg = SegmentPrefab
+                ? Instantiate(SegmentPrefab, pos, Quaternion.identity, _segmentFolder)
+                : MakeSphere(pos,
+                    Color.Lerp(new Color(0.2f, 0.85f, 0.45f), new Color(0.15f, 0.45f, 0.9f),
+                               (float)i / Mathf.Max(1, SegmentCount - 1)),
+                    0.45f, _segmentFolder);
 
             seg.name = $"Segment_{i:D2}";
             seg.tag = "Player";
 
             if (i == 0)
-                _segGroundHeight = ResolveGroundHeight(seg, SegmentGroundHeightCorrection);
+                _segGroundH = ResolveGroundHeight(seg, SegmentGroundHeightCorrection);
 
-            Vector3 grounded = SnapToGround(segPos, _segGroundHeight);
-            if (grounded != Vector3.zero)
-                segPos = grounded;
-
-            seg.transform.position = segPos;
             _segments.Add(seg);
-            _nodePos[i + 1] = segPos;
         }
 
-        if (_segments.Count == 0)
-            _segGroundHeight = _headGroundHeight;
+        if (_segments.Count == 0) _segGroundH = _headGroundH;
+
+        _minSegCount = _segments.Count;
+        ResizeStretchArrays();
+
+        // Seed stretch at rest
+        _headStretch = LevelToStretch(NormalLevel);
+        for (int i = 0; i < _stretch.Count; i++) _stretch[i] = _headStretch;
     }
 
     void BuildPathLine()
     {
         _pathLineGO = new GameObject("DrawPathLine");
         _pathLineGO.transform.SetParent(_runtimeFolder, false);
-
         _pathLine = _pathLineGO.AddComponent<LineRenderer>();
         _pathLine.useWorldSpace = true;
         _pathLine.positionCount = 0;
@@ -293,127 +247,360 @@ public class SnakeController : MonoBehaviour
         _pathLine.endWidth = PathLineWidth;
         _pathLine.numCornerVertices = 8;
         _pathLine.numCapVertices = 8;
-
         var mat = new Material(Shader.Find("Sprites/Default")) { color = PathLineColor };
         _pathLine.material = mat;
         _pathLine.startColor = PathLineColor;
-        _pathLine.endColor = new Color(PathLineColor.r, PathLineColor.g, PathLineColor.b, PathLineColor.a * 0.4f);
+        _pathLine.endColor = new Color(PathLineColor.r, PathLineColor.g, PathLineColor.b,
+                                         PathLineColor.a * 0.4f);
         _pathLineGO.SetActive(false);
     }
 
-    float ResolveGroundHeight(GameObject go, float correction)
+    void MoveHead()
     {
-        // Calculates how far the visual bottom is below the prefab root pivot.
-        // This keeps the mesh touching the floor instead of floating above it.
-        Bounds bounds;
-        bool hasBounds = TryGetVisualBounds(go, out bounds);
-
-        if (hasBounds)
-            return Mathf.Max(0f, go.transform.position.y - bounds.min.y) + GroundOffsetPadding + correction;
-
-        Collider col = go.GetComponentInChildren<Collider>();
-        if (col != null)
-            return Mathf.Max(0f, go.transform.position.y - col.bounds.min.y) + GroundOffsetPadding + correction;
-
-        return GroundOffsetPadding + correction;
-    }
-
-    bool TryGetVisualBounds(GameObject go, out Bounds bounds)
-    {
-        Renderer[] renderers = go.GetComponentsInChildren<Renderer>();
-        bounds = new Bounds(go.transform.position, Vector3.zero);
-
-        bool found = false;
-        foreach (Renderer r in renderers)
+        if (_followingPath && _drawnPath.Count > 0)
         {
-            if (!r.enabled) continue;
+            while (_pathIndex < _drawnPath.Count - 1 &&
+                   Vector3.Distance(_nodeHead, _drawnPath[_pathIndex]) < ArrivalThreshold)
+                _pathIndex++;
 
-            if (!found)
+            if (_pathIndex >= _drawnPath.Count)
             {
-                bounds = r.bounds;
-                found = true;
+                _followingPath = false;
+                _pathLineGO.SetActive(false);
             }
             else
             {
-                bounds.Encapsulate(r.bounds);
+                _targetPosition = _drawnPath[_pathIndex];
+                _hasTarget = true;
+                UpdatePathFade();
             }
         }
 
-        return found;
+        if (!_hasTarget)
+        {
+            _smoothVelocity = Vector3.Lerp(_smoothVelocity, Vector3.zero, Time.deltaTime * 8f);
+            if (_smoothVelocity.sqrMagnitude > 0.0001f)
+            {
+                Vector3 g = SnapToGround(_nodeHead + _smoothVelocity * Time.deltaTime, _headGroundH);
+                if (g != Vector3.zero) _nodeHead = g;
+                else _smoothVelocity = Vector3.zero;
+            }
+            return;
+        }
+
+        Vector3 diff = _targetPosition - _nodeHead;
+        diff.y = 0f;
+        if (diff.magnitude <= ArrivalThreshold)
+        {
+            if (!_followingPath) _hasTarget = false;
+            return;
+        }
+
+        bool sprinting = EnableSprint && Input.GetKey(KeyCode.Mouse0) && _segments.Count > _minSegCount;
+        float topSpeed = sprinting ? MoveSpeed * SprintMultiplier : MoveSpeed;
+        _targetSpeed = topSpeed;
+
+        _smoothVelocity = Vector3.Lerp(
+            _smoothVelocity,
+            diff.normalized * _targetSpeed,
+            Time.deltaTime * Mathf.Lerp(20f, 2f, MoveSmoothing));
+
+        Vector3 step = _smoothVelocity * Time.deltaTime;
+
+        // Wall slide
+        if (step.magnitude > 0.0001f)
+        {
+            Vector3 origin = _nodeHead + Vector3.up * _headGroundH;
+            if (Physics.SphereCast(origin, CollisionRadius, step.normalized,
+                                   out RaycastHit wh, step.magnitude + CollisionRadius,
+                                   CollisionMask, QueryTriggerInteraction.Ignore))
+            {
+                Vector3 n = wh.normal; n.y = 0f;
+                if (n.sqrMagnitude > 0.001f) n.Normalize();
+                _smoothVelocity = Vector3.ProjectOnPlane(_smoothVelocity, n);
+                step = _smoothVelocity * Time.deltaTime;
+            }
+        }
+
+        Vector3 cand = _nodeHead + step;
+        Vector3 fwd = _smoothVelocity.sqrMagnitude > 0.001f
+                       ? _smoothVelocity.normalized * GroundCheckAhead
+                       : Vector3.zero;
+        if (!HasGroundAt(cand + fwd))
+        {
+            _smoothVelocity = Vector3.zero;
+            _hasTarget = false;
+            _followingPath = false;
+            _pathLineGO.SetActive(false);
+            return;
+        }
+
+        Vector3 sn = SnapToGround(cand, _headGroundH);
+        if (sn == Vector3.zero) { _smoothVelocity = Vector3.zero; _hasTarget = false; return; }
+
+        _nodeHead = sn;
+
+        Vector3 fd = _smoothVelocity; fd.y = 0f;
+        if (fd.sqrMagnitude > 0.01f)
+        {
+            _head.transform.rotation = Quaternion.Slerp(
+                _head.transform.rotation,
+                Quaternion.LookRotation(fd.normalized),
+                Time.deltaTime * TurnSpeed);
+        }
     }
 
-    GameObject MakeSphere(Vector3 pos, Color col, float radius, Transform parent)
+    void UpdateSpeed()
     {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        go.transform.SetParent(parent, true);
-        go.transform.position = pos;
-        go.transform.localScale = Vector3.one * radius;
-
-        var c = go.GetComponent<Collider>();
-        if (c) Destroy(c);
-
-        var mr = go.GetComponent<MeshRenderer>();
-        if (mr) mr.material = new Material(Shader.Find("Standard")) { color = col };
-
-        return go;
+        if (Time.deltaTime <= 0f) return;
+        _currentSpeed = (_nodeHead - _prevHeadPos).magnitude / Time.deltaTime;
+        _prevHeadPos = _nodeHead;
     }
-
-    Vector3 SnapToGround(Vector3 pos, float groundHeight)
-    {
-        if (Physics.Raycast(new Vector3(pos.x, pos.y + 10f, pos.z), Vector3.down, out RaycastHit hit, 30f, GroundMask))
-            return new Vector3(pos.x, hit.point.y + groundHeight, pos.z);
-
-        return Vector3.zero;
-    }
-
-    bool HasGroundAt(Vector3 pos)
-    {
-        return Physics.Raycast(new Vector3(pos.x, pos.y + 10f, pos.z), Vector3.down, 30f, GroundMask);
-    }
-
     void SeedTrail(Vector3 pos)
     {
-        _trail = new Vector3[TrailResolution];
-        for (int i = 0; i < TrailResolution; i++) _trail[i] = pos;
-        _trailWriteIdx = TrailResolution - 1;
-        _trailCount = TrailResolution;
+        _trail.Clear();
+        _trailLength = 0f;
+        PushTrailNode(pos);
+        PushTrailNode(pos);
         _lastRecordedPos = pos;
+        _tailSParam = 0f;
+    }
+
+    void PushTrailNode(Vector3 p)
+    {
+        float s = _trail.Count == 0
+                  ? 0f
+                  : _trail[^1].s + Vector3.Distance(_trail[^1].p, p);
+        _trail.Add(new TrailNode { p = p, s = s });
+        _trailLength = s;
     }
 
     void RecordTrail()
     {
-        Vector3 pos = _nodePos[0];
-        if (Vector3.Distance(pos, _lastRecordedPos) < TrailMinDistance) return;
-        _trailWriteIdx = (_trailWriteIdx + 1) % TrailResolution;
-        _trail[_trailWriteIdx] = pos;
-        _lastRecordedPos = pos;
-        if (_trailCount < TrailResolution) _trailCount++;
+        if (_trail.Count == 0) { PushTrailNode(_nodeHead); PushTrailNode(_nodeHead); return; }
+
+        float d = Vector3.Distance(_nodeHead, _lastRecordedPos);
+        if (d < TrailMinDist) return;                   // don't spam tiny nodes
+
+        PushTrailNode(_nodeHead);
+        _lastRecordedPos = _nodeHead;
+
+        TrimTrail();
+
+        if (_trail.Count > TrailResolution)
+            _trail.RemoveRange(0, _trail.Count - TrailResolution);
     }
 
-    Vector3 SampleTrail(float targetDist)
+    void TrimTrail()
     {
-        if (_trailCount <= 1) return _nodePos[0];
+        // Keep enough trail to cover the full body length plus a generous buffer
+        int gaps = Mathf.Max(0, _segments.Count);
+        float worst = gaps * SegmentSpacing * Mathf.Max(1f, MaxStretchCap);
+        float keep = (worst + 6f * SegmentSpacing) * 1.6f;
 
-        float acc = 0f;
-        Vector3 posA = _trail[_trailWriteIdx];
+        float minS = Mathf.Max(0f, _trailLength - keep);
+        // Clamp so we never trim past the tail's S-parameter
+        minS = Mathf.Min(minS, _tailSParam);
 
-        for (int step = 1; step < _trailCount; step++)
+        int remove = 0;
+        for (int i = 0; i < _trail.Count - 2; i++)
         {
-            int idxB = (_trailWriteIdx - step + TrailResolution) % TrailResolution;
-            Vector3 posB = _trail[idxB];
-            float segLen = Vector3.Distance(posA, posB);
-            acc += segLen;
-
-            if (acc >= targetDist)
-            {
-                float t = segLen > 0.0001f ? (acc - targetDist) / segLen : 0f;
-                return Vector3.Lerp(posA, posB, t);
-            }
-
-            posA = posB;
+            if (_trail[i + 1].s <= minS) remove++;
+            else break;
         }
 
-        return _trail[(_trailWriteIdx - _trailCount + 1 + TrailResolution) % TrailResolution];
+        if (remove > 0)
+        {
+            float baseS = _trail[0].s;
+            _trail.RemoveRange(0, remove);
+
+            // Re-zero S values so _trailLength stays sensible
+            for (int i = 0; i < _trail.Count; i++)
+            {
+                var n = _trail[i]; n.s -= baseS; _trail[i] = n;
+            }
+            _trailLength -= baseS;
+            _tailSParam = Mathf.Max(0f, _tailSParam - baseS);
+        }
+    }
+
+    Vector3 SampleTrail(float backFromHead)
+    {
+        if (_trail.Count < 2) return _nodeHead;
+
+        float targetS = Mathf.Max(0f, _trailLength - backFromHead);
+
+        // Binary search for the two trail nodes that bracket targetS
+        int lo = 0, hi = _trail.Count - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >> 1;
+            float sm = (mid == _trail.Count - 1) ? _trailLength : _trail[mid].s;
+            if (sm < targetS) lo = mid + 1;
+            else hi = mid;
+        }
+
+        int i2 = Mathf.Clamp(lo, 1, _trail.Count - 1);
+        int i1 = i2 - 1;
+
+        Vector3 p1 = _trail[i1].p; float s1 = _trail[i1].s;
+        Vector3 p2 = (i2 == _trail.Count - 1) ? _nodeHead : _trail[i2].p;
+        float s2 = (i2 == _trail.Count - 1) ? _trailLength : _trail[i2].s;
+
+        if (Mathf.Approximately(s1, s2)) return p2;
+
+        float t = Mathf.InverseLerp(s1, s2, targetS);
+        return Vector3.Lerp(p1, p2, t);
+    }
+
+    void PlaceSegments()
+    {
+        int gaps = _segments.Count;
+        if (gaps == 0) return;
+
+        // Desired body length (stretch-weighted)
+        float desiredLen = 0f;
+        for (int i = 0; i < gaps; i++)
+            desiredLen += SegmentSpacing * GetStretchClamped(i);
+
+        // Target tail S-param — only ever advance forward
+        float targetTailS = Mathf.Max(0f, _trailLength - desiredLen);
+        if (targetTailS > _tailSParam) _tailSParam = targetTailS;
+
+        // Place each segment
+        float sFromHead = 0f;
+        for (int i = 0; i < gaps; i++)
+        {
+            sFromHead += SegmentSpacing * GetStretchClamped(i);
+            float distFromTail = desiredLen - sFromHead;
+            float sAbs = Mathf.Clamp(_tailSParam + distFromTail, 0f, _trailLength);
+            float backFromHead = Mathf.Max(0f, _trailLength - sAbs);
+
+            Vector3 raw = SampleTrail(backFromHead);
+            // Ground-snap each segment independently so body conforms to terrain
+            Vector3 grounded = SnapToGround(raw, _segGroundH);
+            _segments[i].transform.position = grounded != Vector3.zero ? grounded : raw;
+        }
+    }
+    float LevelToStretch(float lv)
+    {
+        lv = Mathf.Clamp(lv, 0f, 2f);
+        if (lv <= 1f) return Mathf.Lerp(MinSquash, 1f, lv);
+        return Mathf.Lerp(1f, MaxStretchCap, lv - 1f);
+    }
+
+    float ComputeTargetLevel(bool sprinting)
+    {
+        if (sprinting) return SprintLevel;
+        float move01 = Mathf.InverseLerp(
+            StallSpeedThreshold,
+            Mathf.Max(StallSpeedThreshold + 0.0001f, MoveSpeed),
+            _smoothedSpeed);
+        return Mathf.Lerp(StationaryLevel, NormalLevel, move01);
+    }
+
+    void UpdateStretch(bool sprinting)
+    {
+        _smoothedSpeed = Mathf.Lerp(_smoothedSpeed, _currentSpeed, Time.deltaTime * 8f);
+
+        float targetLevel = ComputeTargetLevel(sprinting);
+        float targetStretch = Mathf.Clamp(LevelToStretch(targetLevel), MinSquash, MaxStretchCap);
+
+        _headStretch = Mathf.MoveTowards(_headStretch, targetStretch, Time.deltaTime * StretchResponse);
+        StepStretchChain(Time.deltaTime, targetStretch);
+    }
+
+    void StepStretchChain(float dt, float restStretch)
+    {
+        if (_stretch.Count == 0) return;
+        float prev = _headStretch;
+        for (int i = 0; i < _stretch.Count; i++)
+        {
+            float cur = _stretch[i];
+            float fromPrev = Mathf.Lerp(cur, prev, HeadPull);
+            float target = Mathf.Lerp(fromPrev, restStretch, RestBleed);
+            float delta = target - cur;
+            float maxStep = FollowRate * dt;
+            cur = Mathf.Abs(delta) > maxStep ? cur + Mathf.Sign(delta) * maxStep : target;
+            _stretch[i] = Mathf.Clamp(cur, MinSquash, MaxStretchCap);
+            prev = _stretch[i];
+        }
+    }
+
+    void ResizeStretchArrays(bool inheritTail = false)
+    {
+        int needed = _segments.Count;
+        if (_stretch.Count == needed) return;
+        if (_stretch.Count < needed)
+        {
+            float tail = _stretch.Count > 0 ? _stretch[^1] : 1f;
+            float clamped = Mathf.Clamp(tail, MinSquash, MaxStretchCap);
+            for (int i = _stretch.Count; i < needed; i++)
+                _stretch.Add(inheritTail ? clamped : 1f);
+        }
+        else
+        {
+            _stretch.RemoveRange(needed, _stretch.Count - needed);
+        }
+    }
+
+    float GetStretchClamped(int i)
+    {
+        float s = (i >= 0 && i < _stretch.Count) ? _stretch[i] : 1f;
+        return Mathf.Clamp(s, MinSquash, MaxStretchCap);
+    }
+    void ApplyTransforms()
+    {
+        _head.transform.position = _nodeHead;
+
+        for (int i = 0; i < _segments.Count; i++)
+        {
+            Vector3 ahead = i == 0 ? _nodeHead : _segments[i - 1].transform.position;
+            Vector3 self = _segments[i].transform.position;
+            Vector3 toAhead = ahead - self; toAhead.y = 0f;
+            if (toAhead.sqrMagnitude > 0.0001f)
+            {
+                _segments[i].transform.rotation = Quaternion.Slerp(
+                    _segments[i].transform.rotation,
+                    Quaternion.LookRotation(toAhead.normalized),
+                    Time.deltaTime * TurnSpeed * 2f);
+            }
+        }
+    }
+    void HandleSprintDecay(bool sprinting)
+    {
+        if (!sprinting) return;
+        _sprintAccum += Time.deltaTime;
+        while (_sprintAccum >= SprintSecondsPerLoss && _segments.Count > _minSegCount)
+        {
+            RemoveSegment();
+            _sprintAccum -= SprintSecondsPerLoss;
+        }
+    }
+
+    public void AddSegment()
+    {
+        Vector3 tailPos = _segments.Count > 0
+                          ? _segments[^1].transform.position
+                          : _nodeHead;
+
+        GameObject seg = SegmentPrefab
+            ? Instantiate(SegmentPrefab, tailPos, Quaternion.identity, _segmentFolder)
+            : MakeSphere(tailPos, new Color(0.2f, 0.85f, 0.45f), 0.45f, _segmentFolder);
+
+        seg.name = $"Segment_{_segments.Count:D2}";
+        seg.tag = "Player";
+        _segments.Add(seg);
+        ResizeStretchArrays(inheritTail: true);
+    }
+
+    void RemoveSegment()
+    {
+        if (_segments.Count <= _minSegCount) return;
+        GameObject tail = _segments[^1];
+        _segments.RemoveAt(_segments.Count - 1);
+        if (tail) Destroy(tail);
+        ResizeStretchArrays();
     }
 
     void HandleInput()
@@ -433,69 +620,37 @@ public class SnakeController : MonoBehaviour
         {
             if (pressed && hit)
             {
-                _isDragging = true;
-                _followingPath = false;
-                _hasTarget = false;
-                _drawnRaw.Clear();
-                _drawnPath.Clear();
-
-                Vector3 s = rh.point;
-                s.y += PathLineYOffset;
-                _drawnRaw.Add(s);
-                _lastDrawnPos = s;
+                _isDragging = true; _followingPath = false; _hasTarget = false;
+                _drawnRaw.Clear(); _drawnPath.Clear();
+                Vector3 s = rh.point; s.y += PathLineYOffset;
+                _drawnRaw.Add(s); _lastDrawnPos = s;
                 _pathLineGO.SetActive(true);
                 RefreshLine(_drawnRaw);
             }
 
             if (_isDragging && held && hit)
             {
-                Vector3 pt = rh.point;
-                pt.y += PathLineYOffset;
-
+                Vector3 pt = rh.point; pt.y += PathLineYOffset;
                 if (Vector3.Distance(pt, _lastDrawnPos) >= PathDrawMinDistance)
-                {
-                    _drawnRaw.Add(pt);
-                    _lastDrawnPos = pt;
-                    RefreshLine(_drawnRaw);
-                }
+                { _drawnRaw.Add(pt); _lastDrawnPos = pt; RefreshLine(_drawnRaw); }
             }
 
             if (_isDragging && released)
             {
                 _isDragging = false;
-
                 if (_drawnRaw.Count >= 2)
                 {
-                    _drawnPath = CatmullRom(_drawnRaw, PathSmoothing);
-
-                    for (int i = _drawnPath.Count - 1; i >= 0; i--)
+                    var smoothed = CatmullRom(_drawnRaw, PathSmoothing);
+                    _drawnPath.Clear();
+                    foreach (var p in smoothed)
                     {
-                        if (!HasGroundAt(_drawnPath[i]))
-                        {
-                            _drawnPath.RemoveAt(i);
-                            continue;
-                        }
-
-                        Vector3 sn = SnapToGround(_drawnPath[i], _headGroundHeight);
-                        if (sn == Vector3.zero)
-                        {
-                            _drawnPath.RemoveAt(i);
-                            continue;
-                        }
-
-                        _drawnPath[i] = sn;
+                        if (!HasGroundAt(p)) continue;
+                        Vector3 sn = SnapToGround(p, _headGroundH);
+                        if (sn != Vector3.zero) _drawnPath.Add(sn);
                     }
-
                     if (_drawnPath.Count >= 2)
-                    {
-                        RefreshLine(DisplayPath(_drawnPath));
-                        _pathIndex = 0;
-                        _followingPath = true;
-                    }
-                    else
-                    {
-                        _pathLineGO.SetActive(false);
-                    }
+                    { RefreshLine(DisplayPath(_drawnPath)); _pathIndex = 0; _followingPath = true; }
+                    else _pathLineGO.SetActive(false);
                 }
                 else
                 {
@@ -503,177 +658,99 @@ public class SnakeController : MonoBehaviour
                     if (CanClickMove && hit) SetClickTarget(rh.point);
                 }
             }
-
             if (_isDragging) return;
         }
 
-        if (CanClickMove && !CanDrawPath && pressed && hit)
-            SetClickTarget(rh.point);
+        if (CanClickMove && !CanDrawPath && pressed && hit) SetClickTarget(rh.point);
     }
 
     void SetClickTarget(Vector3 gp)
     {
         if (!HasGroundAt(gp)) return;
-
-        _followingPath = false;
-        _pathLineGO.SetActive(false);
-        _targetPosition = SnapToGround(gp, _headGroundHeight);
+        _followingPath = false; _pathLineGO.SetActive(false);
+        _targetPosition = SnapToGround(gp, _headGroundH);
         _hasTarget = _targetPosition != Vector3.zero;
-
+    }
+    void HandleThrowInput()
+    {
+        var mouse = Mouse.current;
+        if (mouse == null) return;
+        if (mouse.rightButton.wasPressedThisFrame && Time.time >= _nextThrowTime)
+        { ThrowBall(); _nextThrowTime = Time.time + ThrowCooldown; }
     }
 
-    void MoveHead()
+    void ThrowBall()
     {
-        if (_followingPath && _drawnPath.Count > 0)
+        if (!BallPrefab) { Debug.LogWarning("SnakeController: BallPrefab not assigned."); return; }
+        Vector3 spawnPos = _head.transform.position;
+        Vector3 aimTarget = GetAimTarget(spawnPos);
+        Vector3 throwDir = (aimTarget - spawnPos).normalized + Vector3.up * ThrowUpwardBias;
+        throwDir.Normalize();
+
+        GameObject ball = Instantiate(BallPrefab, spawnPos, Quaternion.identity);
+
+        Collider ballCol = ball.GetComponent<Collider>();
+        if (ballCol) IgnoreSnakeCollision(ballCol);
+
+        Rigidbody rb = ball.GetComponent<Rigidbody>();
+        if (rb) rb.AddForce(throwDir * ThrowForce, ForceMode.Impulse);
+        Destroy(ball, 10f);
+    }
+
+    void IgnoreSnakeCollision(Collider ballCol)
+    {
+        Collider hc = _head.GetComponent<Collider>();
+        if (hc) Physics.IgnoreCollision(ballCol, hc);
+        foreach (var seg in _segments)
         {
-            while (_pathIndex < _drawnPath.Count - 1 &&
-                   Vector3.Distance(_nodePos[0], _drawnPath[_pathIndex]) < ArrivalThreshold)
-                _pathIndex++;
-
-            if (_pathIndex >= _drawnPath.Count)
-            {
-                _followingPath = false;
-                _pathLineGO.SetActive(false);
-                return;
-            }
-
-            _targetPosition = _drawnPath[_pathIndex];
-            _hasTarget = true;
-            UpdatePathFade();
-        }
-
-        if (!_hasTarget)
-        {
-            _smoothVelocity = Vector3.Lerp(_smoothVelocity, Vector3.zero, Time.deltaTime * 8f);
-
-            if (_smoothVelocity.sqrMagnitude > 0.0001f)
-            {
-                Vector3 g = SnapToGround(_nodePos[0] + _smoothVelocity * Time.deltaTime, _headGroundHeight);
-                if (g != Vector3.zero) _nodePos[0] = g;
-                else _smoothVelocity = Vector3.zero;
-            }
-
-            return;
-        }
-
-        Vector3 diff = _targetPosition - _nodePos[0];
-        diff.y = 0f;
-
-        if (diff.magnitude <= ArrivalThreshold)
-        {
-            if (!_followingPath) _hasTarget = false;
-            return;
-        }
-
-        _smoothVelocity = Vector3.Lerp(
-            _smoothVelocity,
-            diff.normalized * MoveSpeed,
-            Time.deltaTime * Mathf.Lerp(20f, 2f, MoveSmoothing));
-
-        Vector3 cand = _nodePos[0] + _smoothVelocity * Time.deltaTime;
-        if (!HasGroundAt(cand + _smoothVelocity.normalized * GroundCheckAhead))
-        {
-            _smoothVelocity = Vector3.zero;
-            _hasTarget = false;
-            _followingPath = false;
-            _pathLineGO.SetActive(false);
-            return;
-        }
-
-        Vector3 sn = SnapToGround(cand, _headGroundHeight);
-        if (sn == Vector3.zero)
-        {
-            _smoothVelocity = Vector3.zero;
-            _hasTarget = false;
-            return;
-        }
-
-        _nodePos[0] = sn;
-
-        Vector3 fd = _smoothVelocity;
-        fd.y = 0f;
-        if (fd.sqrMagnitude > 0.01f)
-        {
-            _head.transform.rotation = Quaternion.Slerp(
-                _head.transform.rotation,
-                Quaternion.LookRotation(fd.normalized),
-                Time.deltaTime * TurnSpeed);
+            Collider sc = seg.GetComponent<Collider>();
+            if (sc) Physics.IgnoreCollision(ballCol, sc);
         }
     }
 
-    void UpdateHeadSpeed()
+    Vector3 GetAimTarget(Vector3 spawn)
     {
-        if (Time.deltaTime <= 0f) return;
-        _currentSpeed = (_nodePos[0] - _prevHeadPos).magnitude / Time.deltaTime;
-        _prevHeadPos = _nodePos[0];
+        var mouse = Mouse.current;
+        Vector2 sp = mouse.position.ReadValue();
+        Ray ray = ClickCamera.ScreenPointToRay(new Vector3(sp.x, sp.y, 0f));
+        if (ShowThrowDebugRay) Debug.DrawRay(ray.origin, ray.direction * MaxAimDistance, Color.red, 0.5f);
+        return Physics.Raycast(ray, out RaycastHit hit, MaxAimDistance, AimLayerMask)
+               ? hit.point
+               : ray.origin + ray.direction * MaxAimDistance;
     }
 
-    void UpdateChain()
+    Vector3 SnapToGround(Vector3 pos, float groundHeight)
     {
-        float cumDist = 0f;
-
-        for (int i = 1; i <= SegmentCount; i++)
-        {
-            Vector3 ahead = _nodePos[i - 1];
-            Vector3 self = _nodePos[i];
-
-            Vector3 toSelf = self - ahead;
-            toSelf.y = 0f;
-            float dist = toSelf.magnitude;
-
-            if (dist > MaxSpacing)
-            {
-                float sampleDist = cumDist + MaxSpacing;
-                Vector3 trailPt = SampleTrail(sampleDist);
-                Vector3 grounded = SnapToGround(trailPt, _segGroundHeight);
-                _nodePos[i] = grounded != Vector3.zero ? grounded : trailPt;
-            }
-            else
-            {
-                if (SquishSpeed > 0f && dist > MinSpacing)
-                {
-                    Vector3 dir = ahead - self;
-                    dir.y = 0f;
-                    float move = Mathf.Min(SquishSpeed * Time.deltaTime, dist - MinSpacing);
-                    Vector3 newPos = self + dir.normalized * move;
-                    Vector3 grounded = SnapToGround(newPos, _segGroundHeight);
-                    _nodePos[i] = grounded != Vector3.zero ? grounded : newPos;
-                }
-
-                toSelf = _nodePos[i] - ahead;
-                toSelf.y = 0f;
-                if (toSelf.magnitude < MinSpacing && toSelf.magnitude > 0.0001f)
-                {
-                    Vector3 pushed = ahead + toSelf.normalized * MinSpacing;
-                    Vector3 grounded = SnapToGround(pushed, _segGroundHeight);
-                    _nodePos[i] = grounded != Vector3.zero ? grounded : pushed;
-                }
-            }
-
-            Vector3 finalDiff = _nodePos[i] - _nodePos[i - 1];
-            finalDiff.y = 0f;
-            cumDist += finalDiff.magnitude;
-        }
+        if (Physics.Raycast(new Vector3(pos.x, pos.y + 10f, pos.z),
+                            Vector3.down, out RaycastHit hit, 30f, GroundMask))
+            return new Vector3(pos.x, hit.point.y + groundHeight, pos.z);
+        return Vector3.zero;
     }
 
-    void ApplyNodePositions()
+    bool HasGroundAt(Vector3 pos) =>
+        Physics.Raycast(new Vector3(pos.x, pos.y + 10f, pos.z), Vector3.down, 30f, GroundMask);
+
+    float ResolveGroundHeight(GameObject go, float correction)
     {
-        _head.transform.position = _nodePos[0];
+        if (TryGetVisualBounds(go, out Bounds b))
+            return Mathf.Max(0f, go.transform.position.y - b.min.y) + GroundOffsetPadding + correction;
+        Collider col = go.GetComponentInChildren<Collider>();
+        if (col)
+            return Mathf.Max(0f, go.transform.position.y - col.bounds.min.y) + GroundOffsetPadding + correction;
+        return GroundOffsetPadding + correction;
+    }
 
-        for (int i = 0; i < SegmentCount; i++)
+    bool TryGetVisualBounds(GameObject go, out Bounds bounds)
+    {
+        bounds = new Bounds(go.transform.position, Vector3.zero);
+        bool found = false;
+        foreach (Renderer r in go.GetComponentsInChildren<Renderer>())
         {
-            _segments[i].transform.position = _nodePos[i + 1];
-
-            Vector3 toAhead = _nodePos[i] - _nodePos[i + 1];
-            toAhead.y = 0f;
-            if (toAhead.sqrMagnitude > 0.0001f)
-            {
-                _segments[i].transform.rotation = Quaternion.Slerp(
-                    _segments[i].transform.rotation,
-                    Quaternion.LookRotation(toAhead.normalized),
-                    Time.deltaTime * TurnSpeed * 2f);
-            }
+            if (!r.enabled) continue;
+            if (!found) { bounds = r.bounds; found = true; }
+            else bounds.Encapsulate(r.bounds);
         }
+        return found;
     }
 
     void RefreshLine(List<Vector3> pts)
@@ -681,39 +758,34 @@ public class SnakeController : MonoBehaviour
         _pathLine.startWidth = PathLineWidth;
         _pathLine.endWidth = PathLineWidth;
         _pathLine.startColor = PathLineColor;
-        _pathLine.endColor = new Color(PathLineColor.r, PathLineColor.g, PathLineColor.b, PathLineColor.a * 0.4f);
+        _pathLine.endColor = new Color(PathLineColor.r, PathLineColor.g, PathLineColor.b,
+                                          PathLineColor.a * 0.4f);
         _pathLine.positionCount = pts.Count;
-
-        for (int i = 0; i < pts.Count; i++)
-            _pathLine.SetPosition(i, pts[i]);
+        for (int i = 0; i < pts.Count; i++) _pathLine.SetPosition(i, pts[i]);
     }
 
-    List<Vector3> DisplayPath(List<Vector3> groundedPath)
+    List<Vector3> DisplayPath(List<Vector3> path)
     {
-        var d = new List<Vector3>(groundedPath.Count);
-        foreach (var p in groundedPath)
-            d.Add(new Vector3(p.x, p.y - _headGroundHeight + PathLineYOffset, p.z));
+        var d = new List<Vector3>(path.Count);
+        foreach (var p in path)
+            d.Add(new Vector3(p.x, p.y - _headGroundH + PathLineYOffset, p.z));
         return d;
     }
 
     void UpdatePathFade()
     {
         if (_pathIndex <= 0 || _pathIndex >= _drawnPath.Count) return;
-
         int rem = _drawnPath.Count - _pathIndex;
-        if (rem < 2)
-        {
-            _pathLineGO.SetActive(false);
-            return;
-        }
+        if (rem < 2) { _pathLineGO.SetActive(false); return; }
 
         _pathLine.positionCount = rem + 1;
-        _pathLine.SetPosition(0, new Vector3(_nodePos[0].x, _nodePos[0].y - _headGroundHeight + PathLineYOffset, _nodePos[0].z));
-
+        _pathLine.SetPosition(0, new Vector3(_nodeHead.x,
+                                              _nodeHead.y - _headGroundH + PathLineYOffset,
+                                              _nodeHead.z));
         for (int i = 0; i < rem; i++)
         {
             Vector3 p = _drawnPath[_pathIndex + i];
-            _pathLine.SetPosition(i + 1, new Vector3(p.x, p.y - _headGroundHeight + PathLineYOffset, p.z));
+            _pathLine.SetPosition(i + 1, new Vector3(p.x, p.y - _headGroundH + PathLineYOffset, p.z));
         }
     }
 
@@ -721,54 +793,55 @@ public class SnakeController : MonoBehaviour
     {
         var result = new List<Vector3>();
         if (pts.Count < 2) return result;
-
         var pad = new List<Vector3>();
         pad.Add(pts[0] + (pts[0] - pts[1]));
         pad.AddRange(pts);
-        pad.Add(pts[pts.Count - 1] + (pts[pts.Count - 1] - pts[pts.Count - 2]));
-
+        pad.Add(pts[^1] + (pts[^1] - pts[^2]));
         for (int i = 1; i < pad.Count - 2; i++)
         {
             Vector3 p0 = pad[i - 1], p1 = pad[i], p2 = pad[i + 1], p3 = pad[i + 2];
-
             for (int s = 0; s < sub; s++)
             {
-                float t = (float)s / sub;
-                float t2 = t * t;
-                float t3 = t2 * t;
-                result.Add(0.5f * (2f * p1 + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3));
+                float t = (float)s / sub, t2 = t * t, t3 = t2 * t;
+                result.Add(0.5f * (2f * p1 + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                                   (-p0 + 3f * p1 - 3f * p2 + p3) * t3));
             }
         }
-
-        result.Add(pad[pad.Count - 2]);
+        result.Add(pad[^2]);
         return result;
+    }
+
+    GameObject MakeSphere(Vector3 pos, Color col, float radius, Transform parent)
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        go.transform.SetParent(parent, true);
+        go.transform.position = pos;
+        go.transform.localScale = Vector3.one * radius;
+        var c = go.GetComponent<Collider>(); if (c) Destroy(c);
+        var mr = go.GetComponent<MeshRenderer>();
+        if (mr) mr.material = new Material(Shader.Find("Standard")) { color = col };
+        go.tag = "Player";
+        return go;
     }
 
     public void MoveTo(Vector3 worldPosition)
     {
         if (!HasGroundAt(worldPosition)) return;
-
-        _followingPath = false;
-        _pathLineGO.SetActive(false);
-        _targetPosition = SnapToGround(worldPosition, _headGroundHeight);
+        _followingPath = false; _pathLineGO.SetActive(false);
+        _targetPosition = SnapToGround(worldPosition, _headGroundH);
         _hasTarget = _targetPosition != Vector3.zero;
     }
 
     public void Teleport(Vector3 worldPosition)
     {
-        Vector3 p = SnapToGround(worldPosition, _headGroundHeight);
-        if (p == Vector3.zero)
-            p = worldPosition + Vector3.up * _headGroundHeight;
-
-        for (int i = 0; i <= SegmentCount; i++)
-            _nodePos[i] = p;
-
-        _prevHeadPos = p;
-        _smoothVelocity = Vector3.zero;
-        _hasTarget = false;
-        _followingPath = false;
-        _pathLineGO.SetActive(false);
+        Vector3 p = SnapToGround(worldPosition, _headGroundH);
+        if (p == Vector3.zero) p = worldPosition + Vector3.up * _headGroundH;
+        _nodeHead = p; _prevHeadPos = p;
+        _head.transform.position = p;
+        foreach (var seg in _segments) seg.transform.position = p;
+        _smoothVelocity = Vector3.zero; _hasTarget = false;
+        _followingPath = false; _pathLineGO.SetActive(false);
         SeedTrail(p);
-        ApplyNodePositions();
+        ResizeStretchArrays();
     }
 }
