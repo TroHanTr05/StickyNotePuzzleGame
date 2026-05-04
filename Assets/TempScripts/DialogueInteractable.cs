@@ -1,111 +1,133 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  DialogueInteractable.cs  (updated)
+//
+//  Each NPC/sign can have multiple ConversationSets. The first set whose
+//  inventory condition is satisfied is the one that plays.
+//
+//  Line format displayed: "Speaker: Text"
+//
+//  MVVM role: VIEW-MODEL (reads InventoryModel, fires events for DialogueUI)
+// ─────────────────────────────────────────────────────────────────────────────
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using TMPro;
 
-[System.Serializable]
+// ── Data types ────────────────────────────────────────────────────────────────
+
+[Serializable]
 public class DialogueLine
 {
-    [Tooltip("Who is speaking — leave blank for signs / narration.")]
+    [Tooltip("Who is speaking — leave blank to use the NPC GameObject name.")]
     public string SpeakerName = "";
 
-    [Tooltip("What they say. Use \\n for line breaks.")]
+    [Tooltip("What they say.")]
     [TextArea(2, 6)]
     public string Text = "";
+
+    /// <summary>Returns the formatted string shown in UI: "Speaker: Text"</summary>
+    public string Formatted(string fallbackSpeaker)
+    {
+        string speaker = string.IsNullOrWhiteSpace(SpeakerName) ? fallbackSpeaker : SpeakerName;
+        return $"{speaker}: {Text}";
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  DialogueInteractable
-//
-//  Attach to any sign or NPC GameObject.
-//
-//  PlayerHead is resolved automatically at runtime from SnakeController.Head
-//  (which is only valid after SnakeController.Start() builds the snake).
-//  The lookup is deferred to the first Update() so there is no Start() ordering
-//  race condition — no manual assignment needed.
-//
-//  You can still drag a GameObject into PlayerHead in the Inspector to override.
-//
-//  Static events for UI:
-//    DialogueInteractable.OnLineShown   (DialogueLine, index, total)
-//    DialogueInteractable.OnDialogueEnded ()
-// ─────────────────────────────────────────────────────────────────────────────
-public class DialogueInteractable : MonoBehaviour
+[Serializable]
+public class ConversationSet
 {
-    public static event System.Action<DialogueLine, int, int> OnLineShown;
-    public static event System.Action OnDialogueEnded;
+    [Tooltip("Friendly label shown in the Inspector — not used at runtime.")]
+    public string Label = "Default";
 
-    [Header("Interaction")]
-    [Tooltip("Leave empty — auto-resolved from SnakeController at runtime. " +
-             "Drag a GameObject here only if you want to override.")]
-    public GameObject PlayerHead;
+    [Tooltip("ALL of these item tags must be in the inventory for this set to activate. " +
+             "Leave empty to make this the unconditional fallback.")]
+    public string[] RequiredItems = Array.Empty<string>();
 
-    [Range(0.5f, 20f)]
-    public float InteractionRange = 3f;
+    [Tooltip("ANY of these item tags must NOT be in the inventory. " +
+             "Leave empty to ignore.")]
+    public string[] BlockingItems = Array.Empty<string>();
 
-    [Header("Dialogue")]
-    public DialogueLine[] Lines = new DialogueLine[0];
+    public DialogueLine[] Lines = Array.Empty<DialogueLine>();
 
-    [Tooltip("Loop back to the first line after the last one.")]
+    [Tooltip("Loop after the last line?")]
     public bool Loop = false;
 
-    // ── Private ───────────────────────────────────────────────────────────────
-    private bool _headResolved = false;   // true once PlayerHead is confirmed valid
-    private int _currentIndex = 0;
-    private bool _inConversation = false;
-    private bool _playerInRange = false;
+    /// <summary>Returns true when the inventory satisfies this set's conditions.</summary>
+    public bool IsUnlocked()
+    {
+        var inv = InventoryModel.Instance;
+        foreach (var req in RequiredItems)
+            if (!inv.Has(req)) return false;
+        foreach (var block in BlockingItems)
+            if (inv.Has(block)) return false;
+        return true;
+    }
+}
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  UPDATE — resolve head first, then normal tick
-    // ─────────────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
+
+public class DialogueInteractable : MonoBehaviour
+{
+    // ── Static events (DialogueUI subscribes) ─────────────────────────────────
+    public static event Action<DialogueLine, int, int, string> OnLineShown;   // line, index, total, formattedText
+    public static event Action OnDialogueEnded;
+
+    // ── Inspector ─────────────────────────────────────────────────────────────
+    [Header("Interaction")]
+    [Tooltip("Auto-resolved from SnakeController at runtime. Override by dragging here.")]
+    public GameObject PlayerHead;
+    [Range(0.5f, 20f)] public float InteractionRange = 3f;
+
+    [Header("Conversation Sets (first matching set plays)")]
+    [Tooltip("Put the most specific (most items required) set FIRST. " +
+             "The last set should have no requirements as a fallback.")]
+    public ConversationSet[] ConversationSets = Array.Empty<ConversationSet>();
+
+    [Header("Dialogue Output (TMP) — optional, DialogueUI can handle this instead")]
+    public TextMeshProUGUI DialogueText;
+    public TextMeshProUGUI SpeakerText;
+    public GameObject     DialoguePanel;
+
+    // ── Private state ─────────────────────────────────────────────────────────
+    bool _headResolved;
+    bool _inConversation;
+    bool _playerInRange;
+    int  _currentIndex;
+    ConversationSet _activeSet;
+
+    // ── Unity ─────────────────────────────────────────────────────────────────
+
+    void Start() => SetBoxVisible(false);
 
     void Update()
     {
-        // Deferred head resolution: keeps retrying every frame until
-        // SnakeController.Start() has finished building the snake.
-        if (!_headResolved)
-        {
-            TryResolveHead();
-            if (!_headResolved) return;   // still not ready, wait another frame
-        }
-
+        if (!_headResolved) { TryResolveHead(); if (!_headResolved) return; }
         CheckRange();
         if (_playerInRange) CheckInput();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  HEAD RESOLUTION
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Head resolution ───────────────────────────────────────────────────────
 
     void TryResolveHead()
     {
-        // If something was manually dragged in just use it directly
         if (PlayerHead != null) { _headResolved = true; return; }
-
-        // Find the SnakeController and grab the head it built at runtime
-        SnakeController snake = FindFirstObjectByType<SnakeController>();
-        if (snake == null) return;          // controller not in scene yet
-
-        GameObject head = snake.Head;
-        if (head == null) return;           // controller found but snake not built yet
-
-        PlayerHead = head;
+        var snake = FindFirstObjectByType<SnakeController>();
+        if (snake == null || snake.Head == null) return;
+        PlayerHead = snake.Head;
         _headResolved = true;
-        Debug.Log($"[DialogueInteractable] Auto-resolved player head: '{head.name}'.");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  RANGE CHECK
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Range ─────────────────────────────────────────────────────────────────
 
     void CheckRange()
     {
-        float dist = Vector3.Distance(transform.position, PlayerHead.transform.position);
-        bool inRange = dist <= InteractionRange;
+        bool inRange = Vector3.Distance(transform.position, PlayerHead.transform.position)
+                       <= InteractionRange;
 
         if (inRange && !_playerInRange)
         {
             _playerInRange = true;
-            if (Lines != null && Lines.Length > 0)
-                Debug.Log($"[{gameObject.name}] Press E to interact.");
+            Debug.Log($"[{gameObject.name}] Press E to interact.");
         }
         else if (!inRange && _playerInRange)
         {
@@ -114,51 +136,77 @@ public class DialogueInteractable : MonoBehaviour
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  INPUT — new Input System
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Input ─────────────────────────────────────────────────────────────────
 
     void CheckInput()
     {
-        if (Lines == null || Lines.Length == 0) return;
-
-        Keyboard kb = Keyboard.current;
+        var kb = Keyboard.current;
         if (kb == null || !kb.eKey.wasPressedThisFrame) return;
 
         if (!_inConversation)
-        {
-            _currentIndex = 0;
-            _inConversation = true;
-            ShowCurrentLine();
-        }
+            BeginConversation();
         else
-        {
             AdvanceLine();
-        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  DIALOGUE FLOW
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Conversation flow ─────────────────────────────────────────────────────
+
+    void BeginConversation()
+    {
+        // Pick the first set whose conditions are met (re-evaluated every open)
+        _activeSet = null;
+        foreach (var set in ConversationSets)
+        {
+            if (set.IsUnlocked()) { _activeSet = set; break; }
+        }
+
+        if (_activeSet == null || _activeSet.Lines.Length == 0)
+        {
+            Debug.Log($"[{gameObject.name}] No available dialogue.");
+            return;
+        }
+
+        _currentIndex   = 0;
+        _inConversation = true;
+        SetBoxVisible(true);
+        ShowCurrentLine();
+    }
 
     void ShowCurrentLine()
     {
-        if (_currentIndex >= Lines.Length) { EndConversation(); return; }
+        if (_activeSet == null || _currentIndex >= _activeSet.Lines.Length)
+        { EndConversation(); return; }
 
-        DialogueLine line = Lines[_currentIndex];
-        string speaker = string.IsNullOrEmpty(line.SpeakerName)
-                             ? gameObject.name : line.SpeakerName;
+        var line      = _activeSet.Lines[_currentIndex];
+        int total     = _activeSet.Lines.Length;
+        string fmt    = line.Formatted(gameObject.name);
 
-        Debug.Log($"[{speaker}] {line.Text}");
-        OnLineShown?.Invoke(line, _currentIndex, Lines.Length);
+        // Write to TMP if directly wired
+        if (DialogueText != null)
+        {
+            if (SpeakerText != null)
+            {
+                string sp = string.IsNullOrWhiteSpace(line.SpeakerName)
+                            ? gameObject.name : line.SpeakerName;
+                SpeakerText.text  = sp;
+                DialogueText.text = line.Text;
+            }
+            else
+            {
+                DialogueText.text = fmt;
+            }
+        }
+
+        Debug.Log(fmt);
+        OnLineShown?.Invoke(line, _currentIndex, total, fmt);
     }
 
     void AdvanceLine()
     {
         _currentIndex++;
-        if (_currentIndex >= Lines.Length)
+        if (_currentIndex >= _activeSet.Lines.Length)
         {
-            if (Loop) { _currentIndex = 0; ShowCurrentLine(); }
+            if (_activeSet.Loop) { _currentIndex = 0; ShowCurrentLine(); }
             else EndConversation();
             return;
         }
@@ -168,14 +216,19 @@ public class DialogueInteractable : MonoBehaviour
     void EndConversation()
     {
         _inConversation = false;
-        _currentIndex = 0;
-        Debug.Log($"[{gameObject.name}] (Conversation ended.)");
+        _currentIndex   = 0;
+        _activeSet      = null;
+        SetBoxVisible(false);
         OnDialogueEnded?.Invoke();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  GIZMOS
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    void SetBoxVisible(bool v)
+    {
+        if (DialoguePanel != null) { DialoguePanel.SetActive(v); return; }
+        if (DialogueText  != null)   DialogueText.gameObject.SetActive(v);
+    }
 
 #if UNITY_EDITOR
     void OnDrawGizmosSelected()

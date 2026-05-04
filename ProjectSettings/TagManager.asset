@@ -5,6 +5,7 @@ TagManager:
   serializedVersion: 3
   tags:
   - Ball
+  - Key
   layers:
   - Default
   - TransparentFX
