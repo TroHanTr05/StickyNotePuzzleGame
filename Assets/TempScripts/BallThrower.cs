@@ -1,100 +1,87 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  BallThrower.cs  (ArcThrow)
+//
+//  CHANGES FROM ORIGINAL:
+//    • Added Game.Runtime namespace.
+//    • IGameLog resolved from ServiceResolver.
+//    • No logic changes.
+// ─────────────────────────────────────────────────────────────────────────────
 using UnityEngine;
+using Game339.Shared.Infrastructure.Diagnostics;
 
-public class ArcThrow : MonoBehaviour
+namespace Game.Runtime
 {
-    public GameObject ballPrefab;
-    public Transform throwPoint;
-
-    [Header("Throw Settings")]
-    public float launchSpeed = 15f;
-
-    void Update()
+    public class ArcThrow : MonoBehaviour
     {
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            Throw();
-        }
-    }
+        private static IGameLog Log => ServiceResolver.Resolve<IGameLog>();
 
-    void Throw()
-    {
-        // Get aim point from mouse
-        Vector3 targetPoint = GetMouseWorldPoint();
+        public GameObject ballPrefab;
+        public Transform throwPoint;
 
-        // Calculate velocity using fixed speed
-        if (!CalculateLaunchVelocity(
-            throwPoint.position,
-            targetPoint,
-            launchSpeed,
-            out Vector3 velocity))
+        [Header("Throw Settings")]
+        public float launchSpeed = 15f;
+
+        void Update()
         {
-            return;
+            if (Input.GetKeyDown(KeyCode.Space))
+                Throw();
         }
 
-        // Spawn ball ONLY if valid
-        GameObject ball = Instantiate(ballPrefab, throwPoint.position, Quaternion.identity);
-        Rigidbody rb = ball.GetComponent<Rigidbody>();
-
-        rb.linearVelocity = velocity;
-    }
-    
-    Vector3 GetMouseWorldPoint()
-    {
-        Camera cam = Camera.main;
-
-        // Plane at the player's height
-        Plane plane = new Plane(Vector3.up, throwPoint.position);
-
-        Ray ray = cam.ScreenPointToRay(Input.mousePosition);
-
-        if (plane.Raycast(ray, out float enter))
+        void Throw()
         {
-            return ray.GetPoint(enter);
+            Vector3 targetPoint = GetMouseWorldPoint();
+
+            if (!CalculateLaunchVelocity(throwPoint.position, targetPoint, launchSpeed, out Vector3 velocity))
+            {
+                Log.Warn("[ArcThrow] Could not compute launch velocity — target may be out of range.");
+                return;
+            }
+
+            GameObject ball = Instantiate(ballPrefab, throwPoint.position, Quaternion.identity);
+            Rigidbody rb    = ball.GetComponent<Rigidbody>();
+            rb.linearVelocity = velocity;
+
+            Log.Info($"[ArcThrow] Ball thrown at speed {launchSpeed}.");
         }
 
-        return throwPoint.position;
-    }
+        Vector3 GetMouseWorldPoint()
+        {
+            Camera cam = Camera.main;
+            Plane  plane = new Plane(Vector3.up, throwPoint.position);
+            Ray    ray   = cam.ScreenPointToRay(Input.mousePosition);
 
-    // using fixed speed
-    bool CalculateLaunchVelocity(
-        Vector3 start,
-        Vector3 target,
-        float speed,
-        out Vector3 velocity)
-    {
-        velocity = Vector3.zero;
+            return plane.Raycast(ray, out float enter) ? ray.GetPoint(enter) : throwPoint.position;
+        }
 
-        Vector3 toTarget = target - start;
-        Vector3 toTargetXZ = new Vector3(toTarget.x, 0, toTarget.z);
+        bool CalculateLaunchVelocity(
+            Vector3 start,
+            Vector3 target,
+            float   speed,
+            out Vector3 velocity)
+        {
+            velocity = Vector3.zero;
 
-        float y = toTarget.y;
-        float x = toTargetXZ.magnitude;
+            Vector3 toTarget   = target - start;
+            Vector3 toTargetXZ = new Vector3(toTarget.x, 0, toTarget.z);
 
-        float gravity = Mathf.Abs(Physics.gravity.y);
+            float y       = toTarget.y;
+            float x       = toTargetXZ.magnitude;
+            float gravity = Mathf.Abs(Physics.gravity.y);
+            float speed2  = speed * speed;
 
-        float speedSquared = speed * speed;
+            float underRoot = speed2 * speed2 - gravity * (gravity * x * x + 2 * y * speed2);
+            if (underRoot < 0) return false;
 
-        float underRoot = speedSquared * speedSquared -
-                          gravity * (gravity * x * x + 2 * y * speedSquared);
-        
-        if (underRoot < 0)
-            return false;
+            float root  = Mathf.Sqrt(underRoot);
+            float angle = Mathf.Atan2(speed2 + root, gravity * x);
 
-        float root = Mathf.Sqrt(underRoot);
+            Vector3 direction = toTargetXZ.normalized;
+            velocity = direction * speed * Mathf.Cos(angle) + Vector3.up * speed * Mathf.Sin(angle);
 
-        // Use HIGH arc
-        float angle = Mathf.Atan2(speedSquared + root, gravity * x);
+            if (float.IsNaN(velocity.x) || float.IsNaN(velocity.y) || float.IsNaN(velocity.z))
+                return false;
 
-        Vector3 direction = toTargetXZ.normalized;
-
-        velocity =
-            direction * speed * Mathf.Cos(angle) +
-            Vector3.up * speed * Mathf.Sin(angle);
-
-        // Safety check
-        if (float.IsNaN(velocity.x) || float.IsNaN(velocity.y) || float.IsNaN(velocity.z))
-            return false;
-
-        return true;
+            return true;
+        }
     }
 }

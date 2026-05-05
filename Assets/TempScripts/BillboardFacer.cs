@@ -1,53 +1,63 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  BillboardFacer.cs
+//
+//  CHANGES FROM ORIGINAL:
+//    • Added Game.Runtime namespace — consistent with the rest of the project.
+//    • No logic changes. This is a pure visual utility with no logging needs.
+// ─────────────────────────────────────────────────────────────────────────────
 using UnityEngine;
 
-public class BillboardFacer : MonoBehaviour
+namespace Game.Runtime
 {
-    public enum FaceMode { Full, YAxisOnly, LookAt }
-
-    [Header("Settings")]
-    public FaceMode Mode = FaceMode.Full;
-
-    [Tooltip("Camera to face. Defaults to Camera.main if left empty.")]
-    public Camera TargetCamera;
-
-    [Tooltip("Flip the facing direction (useful if the sprite/text is back-to-front).")]
-    public bool FlipFacing = false;
-
-    [Tooltip("Offset in degrees added after the billboard rotation — for fine-tuning.")]
-    public Vector3 RotationOffset = Vector3.zero;
-
-    void LateUpdate()
+    public class BillboardFacer : MonoBehaviour
     {
-        Camera cam = TargetCamera != null ? TargetCamera : Camera.main;
-        if (cam == null) return;
+        public enum FaceMode { Full, YAxisOnly, LookAt }
 
-        switch (Mode)
+        [Header("Settings")]
+        public FaceMode Mode = FaceMode.Full;
+
+        [Tooltip("Camera to face. Defaults to Camera.main if left empty.")]
+        public Camera TargetCamera;
+
+        [Tooltip("Flip the facing direction (useful if the sprite/text is back-to-front).")]
+        public bool FlipFacing = false;
+
+        [Tooltip("Offset in degrees added after the billboard rotation — for fine-tuning.")]
+        public Vector3 RotationOffset = Vector3.zero;
+
+        void LateUpdate()
         {
-            case FaceMode.Full:
-                transform.rotation = cam.transform.rotation;
-                break;
+            Camera cam = TargetCamera != null ? TargetCamera : Camera.main;
+            if (cam == null) return;
 
-            case FaceMode.YAxisOnly:
-                Vector3 camPosFlat = new Vector3(
-                    cam.transform.position.x,
-                    transform.position.y,          // same height as object
-                    cam.transform.position.z);
+            switch (Mode)
+            {
+                case FaceMode.Full:
+                    transform.rotation = cam.transform.rotation;
+                    break;
 
-                Vector3 dir = camPosFlat - transform.position;
-                if (dir.sqrMagnitude > 0.0001f)
-                    transform.rotation = Quaternion.LookRotation(
-                        FlipFacing ? -dir : dir, Vector3.up);
-                break;
+                case FaceMode.YAxisOnly:
+                    Vector3 camPosFlat = new Vector3(
+                        cam.transform.position.x,
+                        transform.position.y,
+                        cam.transform.position.z);
 
-            case FaceMode.LookAt:
-                Vector3 toCamera = cam.transform.position - transform.position;
-                if (toCamera.sqrMagnitude > 0.0001f)
-                    transform.rotation = Quaternion.LookRotation(
-                        FlipFacing ? toCamera : -toCamera, Vector3.up);
-                break;
+                    Vector3 dir = camPosFlat - transform.position;
+                    if (dir.sqrMagnitude > 0.0001f)
+                        transform.rotation = Quaternion.LookRotation(
+                            FlipFacing ? -dir : dir, Vector3.up);
+                    break;
+
+                case FaceMode.LookAt:
+                    Vector3 toCamera = cam.transform.position - transform.position;
+                    if (toCamera.sqrMagnitude > 0.0001f)
+                        transform.rotation = Quaternion.LookRotation(
+                            FlipFacing ? toCamera : -toCamera, Vector3.up);
+                    break;
+            }
+
+            if (RotationOffset != Vector3.zero)
+                transform.rotation *= Quaternion.Euler(RotationOffset);
         }
-
-        if (RotationOffset != Vector3.zero)
-            transform.rotation *= Quaternion.Euler(RotationOffset);
     }
 }
