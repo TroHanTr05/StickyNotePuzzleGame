@@ -91,7 +91,6 @@ public class SnakeGrapple : MonoBehaviour
 
     void Update()
     {
-        // Press 1 to fire grapple
         if (Keyboard.current != null && Keyboard.current.digit1Key.wasPressedThisFrame)
         {
             if (!_isGrappling)
@@ -100,13 +99,11 @@ public class SnakeGrapple : MonoBehaviour
                 StopGrapple();
         }
 
-        // While grappling, pull the object
         if (_isGrappling && _ropeFullyExtended && _grabbedRb != null)
         {
             PullGrabbedObject();
         }
 
-        // Draw rope every frame
         if (_isGrappling)
         {
             DrawRope();
@@ -117,7 +114,6 @@ public class SnakeGrapple : MonoBehaviour
     {
         if (HeadTransform == null || gameCamera == null) return;
 
-        // Raycast from mouse position onto the ground to get a world target
         Vector3 mouseWorld = GetMouseWorldPosition();
         if (mouseWorld == Vector3.zero) return; // no ground hit
 
@@ -130,7 +126,6 @@ public class SnakeGrapple : MonoBehaviour
 
         direction = direction.normalized;
 
-        // SphereCast from the head toward the mouse to find a grappable object
         RaycastHit hit;
         if (Physics.SphereCast(headPos, 0.3f, direction, out hit, distance, GrappleableLayers))
         {
@@ -142,7 +137,6 @@ public class SnakeGrapple : MonoBehaviour
             }
             else
             {
-                // Hit something static — no pull, just snap the rope to it briefly
                 _grabbedRb = null;
             }
 
@@ -184,13 +178,11 @@ public class SnakeGrapple : MonoBehaviour
 
         if (dist <= arrivalDistance)
         {
-            // Arrived — release
             _grabbedRb.linearVelocity = Vector3.zero;
             StopGrapple();
             return;
         }
 
-        // Apply force to pull the object toward the player
         Vector3 pullDir = toPlayer.normalized;
         _grabbedRb.AddForce(pullDir * pullSpeed, ForceMode.Acceleration);
     }
@@ -206,7 +198,6 @@ public class SnakeGrapple : MonoBehaviour
         if (Physics.Raycast(ray, out hit, 200f, GroundMask))
             return hit.point;
 
-        // Fallback: project onto y=0 plane
         if (Mathf.Abs(ray.direction.y) > 0.001f)
         {
             float t = -ray.origin.y / ray.direction.y;
@@ -227,7 +218,6 @@ public class SnakeGrapple : MonoBehaviour
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / ropeExtendDuration);
 
-            // Lerp with a slight arc
             Vector3 basePos = Vector3.Lerp(start, target, t);
             float arc = Mathf.Sin(Mathf.PI * t) * ropeArcHeight;
             _animatedRopeEnd = basePos + Vector3.up * arc;
@@ -238,7 +228,6 @@ public class SnakeGrapple : MonoBehaviour
         _animatedRopeEnd = target;
         _ropeFullyExtended = true;
 
-        // If we didn't hit a rigidbody, auto-release after the rope reaches
         if (_grabbedRb == null)
         {
             yield return new WaitForSeconds(0.2f);
@@ -262,11 +251,9 @@ public class SnakeGrapple : MonoBehaviour
         int segments = ropeSegments;
         _line.positionCount = segments + 1;
 
-        // Decay wobble over time
         float timeSinceStart = Time.time - _grappleStartTime;
         float wobble = wobbleAmplitude * Mathf.Exp(-wobbleDamping * Mathf.Max(0f, timeSinceStart - ropeExtendDuration));
 
-        // Get a perpendicular axis for the wobble (flat on ground plane)
         Vector3 forward = (end - start);
         forward.y = 0f;
         Vector3 perp = Vector3.Cross(forward.normalized, Vector3.up);
@@ -276,7 +263,6 @@ public class SnakeGrapple : MonoBehaviour
             float t = (float)i / segments;
             Vector3 pos = Vector3.Lerp(start, end, t);
 
-            // Sine wobble — peaks in the middle, zero at endpoints
             float envelope = Mathf.Sin(Mathf.PI * t);
             float osc = Mathf.Sin(wobbleFrequency * t * Mathf.PI * 2f + Time.time * 8f) * wobble * envelope;
             pos += perp * osc;
