@@ -263,4 +263,65 @@ public class WallHealthModelTests
         string activeSet = hasKeySetUnlocked ? "ReturnWithKey" : "AskForKey";
         Assert.AreEqual("ReturnWithKey", activeSet);
     }
+    
+    // ── Zero / negative input guards ─────────────────────────────────────────────
+
+    [Test] public void TakeDamage_ZeroAmount_ReturnsZero()    { var m = new WallHealthModel(10); Assert.AreEqual(0, m.TakeDamage(0)); }
+    [Test] public void TakeDamage_NegativeAmount_ReturnsZero() { var m = new WallHealthModel(10); Assert.AreEqual(0, m.TakeDamage(-5)); }
+    [Test] public void Heal_ZeroAmount_ReturnsZero()           { var m = new WallHealthModel(10); m.TakeDamage(5); Assert.AreEqual(0, m.Heal(0)); }
+    [Test] public void Heal_NegativeAmount_ReturnsZero()       { var m = new WallHealthModel(10); m.TakeDamage(5); Assert.AreEqual(0, m.Heal(-5)); }
+
+// ── OnHealthChanged does not fire on no-op damage/heal ───────────────────────
+
+    [Test]
+    public void TakeDamage_ZeroAmount_DoesNotFireOnHealthChanged()
+    {
+        var m = new WallHealthModel(10);
+        int callCount = 0;
+        m.OnHealthChanged += (_, __) => callCount++;
+        m.TakeDamage(0);
+        Assert.AreEqual(0, callCount);
+    }
+
+    [Test]
+    public void Heal_WhenAlreadyFull_DoesNotFireOnHealthChanged()
+    {
+        var m = new WallHealthModel(10);
+        int callCount = 0;
+        m.OnHealthChanged += (_, __) => callCount++;
+        m.Heal(5);
+        Assert.AreEqual(0, callCount);
+    }
+
+// ── Heal return value ─────────────────────────────────────────────────────────
+
+    [Test]
+    public void Heal_ReturnsActualRestoredAmount()
+    {
+        var m = new WallHealthModel(10);
+        m.TakeDamage(6);
+        Assert.AreEqual(3, m.Heal(3));
+    }
+
+// ── Reset edge cases ──────────────────────────────────────────────────────────
+
+    [Test]
+    public void Reset_AlreadyFullHealth_DoesNotThrow()
+    {
+        var m = new WallHealthModel(10);
+        Assert.DoesNotThrow(() => m.Reset());
+        Assert.AreEqual(10, m.CurrentHealth);
+    }
+
+    [Test]
+    public void Reset_FiresOnHealthChangedEvent()
+    {
+        var m = new WallHealthModel(10);
+        int callCount = 0;
+        m.OnHealthChanged += (_, __) => callCount++;
+        m.TakeDamage(5);
+        callCount = 0; // reset counter after damage event
+        m.Reset();
+        Assert.AreEqual(1, callCount);
+    }
 }
