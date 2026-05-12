@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using Game339.Shared.Infrastructure.Diagnostics;
+using Game339.Shared.Runtime;
 
 namespace Game.Runtime
 {

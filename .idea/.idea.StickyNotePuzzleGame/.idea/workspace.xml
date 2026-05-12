@@ -2,7 +2,11 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="3a40a44a-6ba6-43f0-8938-2b293c85782e" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/Shared/Game339.Shared/Runtime/WallHealthModel.cs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Shared/Game339.Shared/Runtime/WallHealthModel.cs.meta" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/.idea.StickyNotePuzzleGame/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.StickyNotePuzzleGame/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Assets/Game/Runtime/WallHealth.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Assets/Game/Runtime/WallHealth.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Assets/Game/Runtime/WallHealthViewModel.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Assets/Game/Runtime/WallHealthViewModel.cs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Assets/TempScripts/Tests.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Assets/TempScripts/Tests.cs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -39,7 +43,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "git-widget-placeholder": "UnitTests",
+    "git-widget-placeholder": "PreviousWorking-(Trajan-Branch)",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -93,6 +97,7 @@
       <workItem from="1775664915722" duration="4493000" />
       <workItem from="1777003205160" duration="1555000" />
       <workItem from="1778028935676" duration="2551000" />
+      <workItem from="1778557449907" duration="3290000" />
     </task>
     <servers />
   </component>

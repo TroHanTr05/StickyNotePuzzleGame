@@ -19,6 +19,7 @@
 using System;
 using System.Collections.Generic;
 using Game.Runtime;
+using Game339.Shared.Runtime;
 
 #if !UNITY_EDITOR && !UNITY_5_3_OR_NEWER
 using NUnit.Framework;
