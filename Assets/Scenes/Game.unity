@@ -2230,7 +2230,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75c693e7552f4d74caa9a5057d50f2f3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PixelationEffect
-  targetResolutionX: 20
+  targetResolutionX: 32
   pixelationMaterial: {fileID: 2100000, guid: 2d57d166b98afaf4a8f8037b1f9ee084, type: 2}
 --- !u!114 &1998033019
 MonoBehaviour:

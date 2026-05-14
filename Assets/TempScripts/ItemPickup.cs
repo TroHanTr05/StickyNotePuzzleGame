@@ -1,14 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  ItemPickup.cs
-//
-//  CHANGES FROM ORIGINAL:
-//    • InventoryModel.Instance.Add(...) replaced with a resolved
-//      IInventoryModel from ServiceResolver. ItemPickup now depends on the
-//      interface, not the concrete class, and is consistent with how every
-//      other runtime object accesses services.
-//    • Added Game.Runtime namespace.
-//    • Debug implicit calls replaced with IGameLog.
-// ─────────────────────────────────────────────────────────────────────────────
 using System;
 using UnityEngine;
 using Game339.Shared.Infrastructure.Diagnostics;

@@ -1,11 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  SnakeController.cs
-//
-//  CHANGES FROM ORIGINAL:
-//    • Added Game.Runtime namespace.
-//    • IGameLog resolved from ServiceResolver — replaces bare Debug.LogWarning.
-//    • No logic changes.
-// ─────────────────────────────────────────────────────────────────────────────
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -108,8 +100,6 @@ namespace Game.Runtime
         public GameObject Head                       => _head;
         public IReadOnlyList<GameObject> Segments    => _segments;
 
-        // ── Private state ─────────────────────────────────────────────────────
-
         GameObject _head;
         readonly List<GameObject> _segments = new();
         Transform _segmentFolder, _runtimeFolder;
@@ -149,8 +139,6 @@ namespace Game.Runtime
 
         float _nextThrowTime;
 
-        // ── Lifecycle ─────────────────────────────────────────────────────────
-
         void Start()
         {
             if (ClickCamera == null) ClickCamera = Camera.main;
@@ -182,8 +170,6 @@ namespace Game.Runtime
             ApplyTransforms();
         }
 
-        // ── Hierarchy setup ───────────────────────────────────────────────────
-
         void SetupHierarchyFolders()
         {
             if (PlayerBody == null) PlayerBody = transform;
@@ -203,8 +189,6 @@ namespace Game.Runtime
             go.transform.SetParent(parent, false);
             return go.transform;
         }
-
-        // ── Build ─────────────────────────────────────────────────────────────
 
         void BuildSnake()
         {
@@ -275,8 +259,6 @@ namespace Game.Runtime
                                              PathLineColor.a * 0.4f);
             _pathLineGO.SetActive(false);
         }
-
-        // ── Movement ──────────────────────────────────────────────────────────
 
         void MoveHead()
         {
@@ -379,8 +361,6 @@ namespace Game.Runtime
             _prevHeadPos  = _nodeHead;
         }
 
-        // ── Trail ─────────────────────────────────────────────────────────────
-
         void SeedTrail(Vector3 pos)
         {
             _trail.Clear();
@@ -469,8 +449,6 @@ namespace Game.Runtime
             return Vector3.Lerp(p1, p2, Mathf.InverseLerp(s1, s2, targetS));
         }
 
-        // ── Segment placement ─────────────────────────────────────────────────
-
         void PlaceSegments()
         {
             int gaps = _segments.Count;
@@ -496,8 +474,6 @@ namespace Game.Runtime
                 _segments[i].transform.position = grounded != Vector3.zero ? grounded : raw;
             }
         }
-
-        // ── Stretch ───────────────────────────────────────────────────────────
 
         float LevelToStretch(float lv)
         {
@@ -567,8 +543,6 @@ namespace Game.Runtime
             return Mathf.Clamp(s, MinSquash, MaxStretchCap);
         }
 
-        // ── Transform application ─────────────────────────────────────────────
-
         void ApplyTransforms()
         {
             _head.transform.position = _nodeHead;
@@ -587,8 +561,6 @@ namespace Game.Runtime
                 }
             }
         }
-
-        // ── Sprint ────────────────────────────────────────────────────────────
 
         void HandleSprintDecay(bool sprinting)
         {
@@ -625,8 +597,6 @@ namespace Game.Runtime
             if (tail) Destroy(tail);
             ResizeStretchArrays();
         }
-
-        // ── Input ─────────────────────────────────────────────────────────────
 
         void HandleInput()
         {
@@ -768,8 +738,6 @@ namespace Game.Runtime
                    : ray.origin + ray.direction * MaxAimDistance;
         }
 
-        // ── Ground utilities ──────────────────────────────────────────────────
-
         Vector3 SnapToGround(Vector3 pos, float groundHeight)
         {
             if (Physics.Raycast(new Vector3(pos.x, pos.y + 10f, pos.z),
@@ -803,8 +771,6 @@ namespace Game.Runtime
             }
             return found;
         }
-
-        // ── Path line helpers ─────────────────────────────────────────────────
 
         void RefreshLine(List<Vector3> pts)
         {
@@ -865,8 +831,6 @@ namespace Game.Runtime
             return result;
         }
 
-        // ── Public API ────────────────────────────────────────────────────────
-
         public void MoveTo(Vector3 worldPosition)
         {
             if (!HasGroundAt(worldPosition)) return;
@@ -887,8 +851,6 @@ namespace Game.Runtime
             SeedTrail(p);
             ResizeStretchArrays();
         }
-
-        // ── Fallback sphere builder ───────────────────────────────────────────
 
         GameObject MakeSphere(Vector3 pos, Color col, float radius, Transform parent)
         {

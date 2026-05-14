@@ -1,10 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  BillboardFacer.cs
-//
-//  CHANGES FROM ORIGINAL:
-//    • Added Game.Runtime namespace — consistent with the rest of the project.
-//    • No logic changes. This is a pure visual utility with no logging needs.
-// ─────────────────────────────────────────────────────────────────────────────
 using UnityEngine;
 
 namespace Game.Runtime

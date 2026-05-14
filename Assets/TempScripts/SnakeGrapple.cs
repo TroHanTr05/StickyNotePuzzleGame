@@ -1,11 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  SnakeGrapple.cs
-//
-//  CHANGES FROM ORIGINAL:
-//    • Added Game.Runtime namespace.
-//    • IGameLog resolved from ServiceResolver — no bare Debug.Log calls.
-//    • No logic changes.
-// ─────────────────────────────────────────────────────────────────────────────
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;

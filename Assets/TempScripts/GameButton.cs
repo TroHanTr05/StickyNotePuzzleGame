@@ -1,11 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  GameButton.cs
-//
-//  CHANGES FROM ORIGINAL:
-//    • Added Game.Runtime namespace.
-//    • IGameLog resolved from ServiceResolver — replaces bare Debug.Log TODO comment.
-//    • No logic changes.
-// ─────────────────────────────────────────────────────────────────────────────
 using UnityEngine;
 using Game339.Shared.Infrastructure.Diagnostics;
 

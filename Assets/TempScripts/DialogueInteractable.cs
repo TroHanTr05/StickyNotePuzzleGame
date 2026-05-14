@@ -1,16 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  DialogueInteractable.cs
-//
-//  CHANGES FROM ORIGINAL:
-//    • ConversationSet.IsUnlocked() no longer calls InventoryModel.Instance
-//      directly. It now resolves IInventoryModel from ServiceResolver so the
-//      concrete type is never hard-wired into the condition logic.
-//    • Added Game.Runtime namespace consistent with the rest of the project.
-//    • Debug.Log replaced with IGameLog resolved from ServiceResolver.
-//
-//  MVVM role: VIEW-MODEL
-//    • Reads IInventoryModel (Model), fires events consumed by DialogueUI (View).
-// ─────────────────────────────────────────────────────────────────────────────
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -19,8 +6,6 @@ using Game339.Shared.Infrastructure.Diagnostics;
 
 namespace Game.Runtime
 {
-    // ── Data types ────────────────────────────────────────────────────────────
-
     [Serializable]
     public class DialogueLine
     {
@@ -58,9 +43,6 @@ namespace Game.Runtime
         [Tooltip("Loop after the last line?")]
         public bool Loop = false;
 
-        /// <summary>
-        /// Returns true when the inventory satisfies this set's conditions.
-        /// Resolves IInventoryModel from the DI container — no static singleton access.
         /// </summary>
         public bool IsUnlocked()
         {
@@ -74,9 +56,6 @@ namespace Game.Runtime
             return true;
         }
     }
-
-    // ── Component ─────────────────────────────────────────────────────────────
-
     public class DialogueInteractable : MonoBehaviour
     {
         private static IGameLog Log => ServiceResolver.Resolve<IGameLog>();
@@ -85,7 +64,6 @@ namespace Game.Runtime
         public static event Action<DialogueLine, int, int, string> OnLineShown;
         public static event Action OnDialogueEnded;
 
-        // ── Inspector ─────────────────────────────────────────────────────────
         [Header("Interaction")]
         [Tooltip("Auto-resolved from SnakeController at runtime. Override by dragging here.")]
         public GameObject PlayerHead;
@@ -101,14 +79,11 @@ namespace Game.Runtime
         public TextMeshProUGUI SpeakerText;
         public GameObject      DialoguePanel;
 
-        // ── Private state ─────────────────────────────────────────────────────
         bool _headResolved;
         bool _inConversation;
         bool _playerInRange;
         int  _currentIndex;
         ConversationSet _activeSet;
-
-        // ── Unity ─────────────────────────────────────────────────────────────
 
         void Start() => SetBoxVisible(false);
 
@@ -119,8 +94,6 @@ namespace Game.Runtime
             if (_playerInRange) CheckInput();
         }
 
-        // ── Head resolution ───────────────────────────────────────────────────
-
         void TryResolveHead()
         {
             if (PlayerHead != null) { _headResolved = true; return; }
@@ -130,8 +103,6 @@ namespace Game.Runtime
             _headResolved = true;
         }
 
-        // ── Range ─────────────────────────────────────────────────────────────
-
         void CheckRange()
         {
             bool inRange = Vector3.Distance(transform.position, PlayerHead.transform.position)
@@ -140,29 +111,27 @@ namespace Game.Runtime
             if (inRange && !_playerInRange)
             {
                 _playerInRange = true;
-                Log.Info($"[{gameObject.name}] Press E to interact.");
+
+                // Start/restart conversation immediately when player enters zone
+                BeginConversation();
             }
             else if (!inRange && _playerInRange)
             {
                 _playerInRange = false;
-                if (_inConversation) EndConversation();
+
+                // End and reset conversation when player leaves zone
+                EndConversation();
             }
         }
-
-        // ── Input ─────────────────────────────────────────────────────────────
 
         void CheckInput()
         {
             var kb = Keyboard.current;
             if (kb == null || !kb.eKey.wasPressedThisFrame) return;
 
-            if (!_inConversation)
-                BeginConversation();
-            else
+            if (_inConversation)
                 AdvanceLine();
         }
-
-        // ── Conversation flow ─────────────────────────────────────────────────
 
         void BeginConversation()
         {
@@ -232,9 +201,6 @@ namespace Game.Runtime
             SetBoxVisible(false);
             OnDialogueEnded?.Invoke();
         }
-
-        // ── Helpers ───────────────────────────────────────────────────────────
-
         void SetBoxVisible(bool v)
         {
             if (DialoguePanel != null) { DialoguePanel.SetActive(v); return; }

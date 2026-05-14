@@ -1,11 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  BallThrower.cs  (ArcThrow)
-//
-//  CHANGES FROM ORIGINAL:
-//    • Added Game.Runtime namespace.
-//    • IGameLog resolved from ServiceResolver.
-//    • No logic changes.
-// ─────────────────────────────────────────────────────────────────────────────
 using UnityEngine;
 using Game339.Shared.Infrastructure.Diagnostics;
 

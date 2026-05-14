@@ -1,30 +1,27 @@
-Shader "Custom/PixelationShaderMetal"
+Shader "Custom/PixelationShaderUnity3D"
 {
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-        _PixelResolution ("Pixel Resolution", Range(1, 512)) = 60
+        _PixelResolution ("Pixel Resolution", Float) = 120
     }
+
     SubShader
     {
-        Tags { "RenderType"="Transparent" "Queue"="Overlay" }
-        LOD 100
+        Cull Off
+        ZWrite Off
+        ZTest Always
 
         Pass
         {
-            ZTest Always
-            Cull Off
-            ZWrite Off
-
             CGPROGRAM
-            // Use a vertex/fragment pair that’s known to work on Metal.
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0
-            
-            #include "HLSLSupport.cginc"
+
+            #include "UnityCG.cginc"
 
             sampler2D _MainTex;
+            float4 _MainTex_TexelSize;
             float _PixelResolution;
 
             struct appdata
@@ -35,26 +32,42 @@ Shader "Custom/PixelationShaderMetal"
 
             struct v2f
             {
-                float4 vertex : SV_POSITION;
                 float2 uv : TEXCOORD0;
+                float4 vertex : SV_POSITION;
             };
 
-            v2f vert(appdata v)
+            v2f vert (appdata v)
             {
                 v2f o;
+
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
+
                 return o;
             }
 
-            half4 frag(v2f i) : SV_Target
+            fixed4 frag (v2f i) : SV_Target
             {
-                // Pixelate the UVs
-                float2 pixelUV = floor(i.uv * _PixelResolution) / _PixelResolution;
-                return tex2D(_MainTex, pixelUV);
+                // Calculate aspect ratio
+                float aspect = _ScreenParams.y / _ScreenParams.x;
+
+                // Pixel size based on horizontal resolution
+                float pixelSizeX = 1.0 / _PixelResolution;
+                float pixelSizeY = pixelSizeX / aspect;
+
+                // Snap UVs to pixel grid
+                float2 pixelatedUV;
+                pixelatedUV.x = floor(i.uv.x / pixelSizeX) * pixelSizeX;
+                pixelatedUV.y = floor(i.uv.y / pixelSizeY) * pixelSizeY;
+
+                // Sample texture using snapped UVs
+                fixed4 col = tex2D(_MainTex, pixelatedUV);
+
+                return col;
             }
             ENDCG
         }
     }
-    Fallback "Diffuse"
+
+    Fallback Off
 }
