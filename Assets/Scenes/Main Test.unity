@@ -1787,6 +1787,13 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   ShowThrowDebugRay: 1
+  ThrowSounds:
+  - {fileID: 8300000, guid: 257b4257ec314da4d97cb6ba7d9f1b07, type: 3}
+  - {fileID: 8300000, guid: c772b7a7d461335459fef177c638eae0, type: 3}
+  - {fileID: 8300000, guid: 67c2e665ebb0f5449bd3861ccfd527e6, type: 3}
+  - {fileID: 8300000, guid: 6b4927d85a073114fae7cac1e921fbc4, type: 3}
+  - {fileID: 8300000, guid: a5497b519c28d83419c254e9b7c3a658, type: 3}
+  ThrowSoundVolume: 1
 --- !u!1 &1998033011
 GameObject:
   m_ObjectHideFlags: 0

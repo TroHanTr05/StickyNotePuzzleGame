@@ -100,6 +100,10 @@ namespace Game.Runtime
         public LayerMask AimLayerMask = ~0;
         public bool ShowThrowDebugRay = true;
 
+        [Header("Throw Audio")]
+        public AudioClip[] ThrowSounds;
+        [Range(0f, 1f)] public float ThrowSoundVolume = 1f;
+
         public float CurrentSpeed                    => _currentSpeed;
         public GameObject Head                       => _head;
         public IReadOnlyList<GameObject> Segments    => _segments;
@@ -721,7 +725,24 @@ namespace Game.Runtime
 
             Rigidbody rb = ball.GetComponent<Rigidbody>();
             if (rb) rb.AddForce(throwDir * ThrowForce, ForceMode.Impulse);
+
+            PlayRandomThrowSound(spawnPos);
+
             Destroy(ball, 10f);
+        }
+
+        void PlayRandomThrowSound(Vector3 position)
+        {
+            if (ThrowSounds == null || ThrowSounds.Length == 0)
+             return;
+
+          int randomIndex = Random.Range(0, ThrowSounds.Length);
+          AudioClip selectedClip = ThrowSounds[randomIndex];
+
+         if (selectedClip == null)
+              return;
+
+           AudioSource.PlayClipAtPoint(selectedClip, position, ThrowSoundVolume);
         }
 
         void IgnoreSnakeCollision(Collider ballCol)
